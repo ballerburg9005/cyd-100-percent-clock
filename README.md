@@ -1,10 +1,12 @@
 # 100% Clock — a day, displayed as a percentage
 
-An intentionally simple gift clock for the **Sunton ESP32-2432S022C**
-(ESP32-WROOM-32, 2.2-inch 240×320 ST7789 i80 display, CST816S touch).
-One day is **00.00% → 99.99%**. At **12:00:00 it reads 50.00%**.
-The large percentage is always the visual centerpiece; ordinary time/date
-stay secondary. No phone app, subscription or cloud account required.
+An offline-first **landscape (320×240)** percentage clock for the **Sunton ESP32-2432S022C**
+(ESP32-WROOM-32, native 240×320 ST7789 i80 LCD, CST816S capacitive touch).
+One civil day runs from **00.00% to 99.99%**, with **50.00% at 12:00**.
+The percentage dominates every clock/alarms/timer screen; the conventional
+HH:MM and ISO 8601 date are small and secondary. Big numerals use embedded
+rasterized typographic glyphs, not seven-segment blocks.
+No phone app, subscription or cloud account is required.
 
 > **Prototype, not yet tested on the author's physical board.** Check the
 > printed PCB model before flashing. S022C is *not* the 2.8-inch SPI CYD.
@@ -23,7 +25,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 No Wi-Fi password is compiled into the firmware. On first boot, it starts a
 10-minute setup AP automatically. You can reopen it later via **MENU → WIFI →
 PORTAL**. The screen shows the SSID,
-device-specific eight-character password, and URL. Connect your phone to the
+device-specific twelve-character password, and URL. Connect your phone to the
 AP and browse **http://192.168.4.1/**. Enter home Wi-Fi credentials, POSIX
 time-zone and a short gift message. The device restarts when you save.
 Alternatively use **WIFI → SSID / PASS** for the on-screen touch keyboard;
@@ -46,24 +48,42 @@ Civil local time is used even across daylight-saving transitions (noon is
 always 50%); the percentage can repeat or skip a small interval on a DST
 change. The display never prematurely rolls over to 100.00%.
 
-### First-version controls
+### Controls in the landscape firmware
 
-- **Main**: very large percent, small clock/date, progress bar; tap MENU.
-- **Alarm**: daily local HH:MM alarm with simple onboard-speaker beep, on/off.
-- **Timer**: kitchen timer with preset adjustments and start/stop.
-- **Set time**: offline year/month/day/hour/minute editor; saves RTC if found.
-- **Wi-Fi**: on-device SSID/password keyboard or short-lived setup access point.
-- **Gift**: customizable short text and optional contact/XMPP/email line via
-  setup portal; physical photo slot in the proposed case. No owner's personal
-  details or pictures are embedded.
-- **Look**: three color themes, manual backlight level. Idle dim retains an
-  always-visible clock instead of turning the display off.
+- **Clock:** large `XX.XX%` of local day; below are HH:MM, full weekday,
+  ISO date `YYYY-MM-DD` and a subtle progress line. No slogan/banner.
+- **Alarm:** local daily time shown as `XX.XX%`; adjust by ±0.01% or ±1.00%,
+  toggle on/off. 0.01% of a day is 8.64 seconds. It uses a gentle ascending
+  three-note tone on the onboard speaker. Alarm resolution is 8.64 s.
+- **Kitchen timer:** `X.XX%` duration (0.01%–9.99% of 24 h), adjustable in
+  ±0.01% or ±0.10% steps. Conventional MM:SS is small below it.
+  The countdown runs from monotonic microseconds.
+- **Set Time:** `[X] USE NTP` checkbox defaults ON; manual date/time controls
+  are hidden while NTP is selected. Uncheck for offline time setting.
+  DS3231, when fitted, backs up UTC independently of display time zone.
+- **Wi-Fi:** touchscreen keyboard with **visible plaintext password**, or
+  10-minute WPA2 setup portal `http://192.168.4.1/` after connecting to
+  the displayed AP SSID/password. Use the portal for mixed-case passwords.
+- **Contact:** XMPP JID and email address configured through portal. Place a
+  **24-bit uncompressed BMP named `face.bmp`** in the microSD root to show
+  a local thumbnail. No personal picture/details are bundled in firmware.
+- **Look:** four themes: Rose, Glacier, Honey, and near-black **Dark**.
+  Backlight is automatically dimmed after 40 s with no touch; LCD stays on.
+- **Files:** optional TF/microSD root browser. Reads plain `.txt`, displays
+  uncompressed 24-bit `.bmp`, and **lists** `.mp3` filenames. MP3 playback,
+  folders, JPEG/PNG, EPUB and other binary decoders are deliberately absent.
+  Inserting a card is optional: missing cards must not prevent boot.
 
-**Not yet implemented:** photos from microSD, RSS, XMPP, weather, streaming
-radio, firmware OTA and battery percentage. They are intentionally omitted
-rather than represented by dead UI buttons. Speaker **beeps** are supported;
-radio requires a reliable audio pipeline, feed selection and hardware
-validation.
+**Hardware notes:** The LCD is rotated to landscape; default touch mapping
+is native CST816S portrait (x: 0..239, y: 0..319) → landscape
+`x=raw_y, y=239-raw_x`. If taps are mirrored relative to visible buttons,
+adjust the touch mirror/swap settings in `idf.py menuconfig` under
+**100 Percent Clock board adjustments**. Touch events also accept a new
+press after 350 ms, avoiding the original missed-release lockup.
+
+**Not implemented:** streaming radio, XMPP messaging, RSS/news, weather,
+audio decoding, or battery percentage. These require separate network/audio
+engines, security, and board-specific testing; no fake UI features are added.
 
 ### Pins for ESP32-2432S022C
 
@@ -104,7 +124,7 @@ USB power is the realistic mode for permanent full-brightness operation.
 
 ### Case concept
 
-Portrait desk clock with 3D-printed wedge stand at ~15° tilt, front
+Landscape desk clock with 3D-printed wedge stand at ~15° tilt, front
 window for 2.2-inch display, recessed USB access and ventilation, a
 removable rear battery/RTC compartment, and optional 35 mm photo holder.
 Leave clearance from LiPo to heat sources and avoid compression or puncture.
@@ -113,9 +133,9 @@ Leave clearance from LiPo to heat sources and avoid compression or puncture.
 
 1. Verify LCD rotation/color and CST816S touch coordinates on actual S022C.
 2. Check NTP, reboot without Wi-Fi, and optional DS3231 retention.
-3. Test AP portal and touchscreen keyboard with real WPA2 credentials.
+3. Test AP portal and visible-password keyboard with real WPA2 credentials.
 4. Validate that idle dim / speaker alarm work and do not cause boot issues.
-5. Measure battery current at bright/dim settings before building an
+5. Measure battery current at bright/dim/dark settings before building an
    enclosed rechargeable gift device.
 6. If the exact board differs, use its schematic instead of these pins.
 
