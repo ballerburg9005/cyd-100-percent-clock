@@ -89,6 +89,7 @@ static void store(void)
     nvs_set_str(h,"pass",ui.password);
     nvs_set_str(h,"tz",tz);
     nvs_set_str(h,"gift",ui.gift);
+    nvs_set_str(h,"contact",ui.contact);
     nvs_set_u8(h,"ah",ui.alarm_hour);
     nvs_set_u8(h,"am",ui.alarm_minute);
     nvs_set_u8(h,"ae",ui.alarm_enabled);
@@ -111,6 +112,7 @@ static void load(void)
     n=sizeof(ui.password);nvs_get_str(h,"pass",ui.password,&n);
     n=sizeof(tz);nvs_get_str(h,"tz",tz,&n);
     n=sizeof(ui.gift);nvs_get_str(h,"gift",ui.gift,&n);
+    n=sizeof(ui.contact);nvs_get_str(h,"contact",ui.contact,&n);
     nvs_get_u8(h,"ah",&ui.alarm_hour);
     nvs_get_u8(h,"am",&ui.alarm_minute);
     uint8_t v=0;
@@ -239,6 +241,7 @@ static esp_err_t web_home(httpd_req_t *req)
        "<label>Wi-Fi password<input name=pass type=password maxlength=63></label>"
        "<label>Time zone (POSIX)<input name=tz value='CET-1CEST,M3.5.0,M10.5.0/3' maxlength=79></label>"
        "<label>Short gift message<textarea name=gift maxlength=100>MAKE IT BEAUTIFUL</textarea></label>"
+       "<label>Contact / XMPP / email (optional)<input name=contact maxlength=100></label>"
        "<button>Save and restart</button></form>"
        "<p>Clock runs offline too: MENU &gt; SET TIME. This setup AP closes after 10 minutes.</p>";
     httpd_resp_set_type(req,"text/html; charset=utf-8");
@@ -265,6 +268,7 @@ static esp_err_t web_save(httpd_req_t *req)
         else if(strcmp(part,"pass")==0)decode(ui.password,sizeof ui.password,eq);
         else if(strcmp(part,"tz")==0)decode(tz,sizeof tz,eq);
         else if(strcmp(part,"gift")==0)decode(ui.gift,sizeof ui.gift,eq);
+        else if(strcmp(part,"contact")==0)decode(ui.contact,sizeof ui.contact,eq);
     }
     store();
     httpd_resp_sendstr(req,"<h2>Saved. Restarting clock.</h2>");
