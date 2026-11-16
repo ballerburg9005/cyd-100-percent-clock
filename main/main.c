@@ -39,7 +39,6 @@ static int64_t portal_deadline;
 static int64_t timer_deadline;
 static int64_t ring_deadline;
 static int last_alarm_date=-1;
-static uint32_t last_rtc_write_hour;
 static int64_t last_touch_us;
 static bool sound_on;
 
@@ -249,7 +248,7 @@ static esp_err_t web_home(httpd_req_t *req)
 }
 static esp_err_t web_save(httpd_req_t *req)
 {
-    if(req->content_len<0 || req->content_len>950){
+    if(req->content_len>950){
         httpd_resp_send_err(req,HTTPD_413_CONTENT_TOO_LARGE,"Form too large");return ESP_FAIL;
     }
     char buf[952]={0};
@@ -288,7 +287,10 @@ static void enable_portal(void)
              "100PERCENT-%02X%02X",mac[4],mac[5]);
     snprintf(ui.portal_ssid,sizeof ui.portal_ssid,"%s",(char *)ap.ap.ssid);
     /* New random WPA2 key on each boot, visible on the clock itself. */
-    snprintf(ui.portal_password,sizeof ui.portal_password,"%08lX",(unsigned long)esp_random());
+    static const char abc[]="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    for(unsigned i=0;i<12;++i)
+        ui.portal_password[i]=abc[esp_random()%(sizeof abc-1)];
+    ui.portal_password[12]=0;
     snprintf((char *)ap.ap.password,sizeof ap.ap.password,"%s",ui.portal_password);
     ap.ap.ssid_len=strlen((char *)ap.ap.ssid);
     ap.ap.channel=6;
@@ -499,7 +501,7 @@ void app_main(void)
         if(wifi_connected && ui.time_valid && ui.rtc_present &&
            now_us-last_rtc_poll>3600LL*1000000){
             /* Periodic RTC correction: NTP runs when connected; RTC stores UTC. */
-            rtc_save(epoch);last_rtc_poll=now_us;last_rtc_write_hour=(uint32_t)(epoch/3600);
+            rtc_save(epoch);last_rtc_poll=now_us;
         }
         if((uint32_t)epoch!=last_sec){last_sec=(uint32_t)epoch;draw=true;}
         if(last_connected!=wifi_connected||last_portal!=ui.portal_enabled){
