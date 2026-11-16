@@ -23,6 +23,23 @@
 #define I2C_PORT I2C_NUM_0
 #define TOUCH_ADDR 0x15
 
+/* Kconfig defaults of 'n' are omitted from sdkconfig.h. */
+#ifndef CONFIG_CLOCK_LCD_MIRROR_X
+#define CONFIG_CLOCK_LCD_MIRROR_X 0
+#endif
+#ifndef CONFIG_CLOCK_LCD_MIRROR_Y
+#define CONFIG_CLOCK_LCD_MIRROR_Y 0
+#endif
+#ifndef CONFIG_CLOCK_TOUCH_SWAP_XY
+#define CONFIG_CLOCK_TOUCH_SWAP_XY 0
+#endif
+#ifndef CONFIG_CLOCK_TOUCH_MIRROR_X
+#define CONFIG_CLOCK_TOUCH_MIRROR_X 0
+#endif
+#ifndef CONFIG_CLOCK_TOUCH_MIRROR_Y
+#define CONFIG_CLOCK_TOUCH_MIRROR_Y 0
+#endif
+
 typedef struct { char ch; uint8_t row[7]; } font_glyph_t;
 static const font_glyph_t FONT[] = {
  {'A',{14,17,17,31,17,17,17}}, {'B',{30,17,17,30,17,17,30}},
@@ -116,7 +133,6 @@ static void center(int y,const char *s,int scale,uint16_t c)
 static void button(int x,int y,int w,int h,const char *label,bool selected)
 {
     rounded(x,y,w,h,8,selected?accent:card);
-    center(0,"",1,ink); /* keeps clipping behavior identical across screens */
     int scale = text_w(label,2) <= w-6 ? 2:1;
     text(x+(w-text_w(label,scale))/2,y+(h-7*scale)/2,label,scale,selected?bg:ink);
 }
@@ -253,7 +269,7 @@ static void wifi_page(const ui_state_t *s)
     button(15,184,210,43,s->portal_enabled?"PORTAL ON":"START PORTAL",s->portal_enabled);
     if (s->portal_enabled) {
         center(236,"CONNECT TO:",1,muted);
-        center(251,"ONEHUNDRED-CLOCK",1,ink);
+        center(251,s->portal_ssid,1,ink);
         snprintf(b,sizeof b,"PASS: %s",s->portal_password);
         center(267,b,1,ink);
         center(286,"192.168.4.1",1,accent);
