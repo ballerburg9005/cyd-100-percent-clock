@@ -407,84 +407,135 @@ static void start_keyboard(bool password)
     snprintf(ui.keyboard_value,sizeof ui.keyboard_value,"%s",password?ui.password:ui.ssid);
     ui.page=UI_KEYBOARD;
 }
+static void open_files(void)
+{
+    ui.sd_ready=media_select(0,ui.file_name,sizeof ui.file_name);
+    ui.file_index=0;
+    ui.page=UI_FILES;
+}
 static void touch(int x,int y)
 {
     last_touch_us=esp_timer_get_time();
     if(ui.alarm_ringing||ui.timer_ringing){silence();return;}
     if(ui.page==UI_HOME){ui.page=UI_MENU;return;}
-    if(y<48 && x>=164){ui.page=(ui.page==UI_MENU)?UI_HOME:
-                              (ui.page==UI_KEYBOARD?UI_WIFI:UI_MENU);return;}
+    if(y<44 && x>=247){
+        if(ui.page==UI_MENU)ui.page=UI_HOME;
+        else if(ui.page==UI_KEYBOARD)ui.page=UI_WIFI;
+        else if(ui.page==UI_FILE_VIEW)ui.page=UI_FILES;
+        else ui.page=UI_MENU;
+        return;
+    }
     if(ui.page==UI_MENU){
-        if(y>=69&&y<122)ui.page=x<120?UI_ALARM:UI_TIMER;
-        else if(y>=132&&y<185){ui.page=x<120?UI_SET_TIME:UI_WIFI;if(ui.page==UI_SET_TIME)init_time_editor();}
-        else if(y>=195&&y<248)ui.page=x<120?UI_GIFT:UI_LOOK;
-    } else if(ui.page==UI_ALARM){
-        if(y>=163&&y<207){
-            if(x<68)ui.alarm_hour=(ui.alarm_hour+23)%24;
-            else if(x<123)ui.alarm_hour=(ui.alarm_hour+1)%24;
-            else if(x<175)ui.alarm_minute=(ui.alarm_minute+59)%60;
-            else ui.alarm_minute=(ui.alarm_minute+1)%60;
+        int col=x<108?0:x<211?1:2;
+        if(y>=54&&y<111){
+            if(col==0)ui.page=UI_ALARM;
+            else if(col==1)ui.page=UI_TIMER;
+            else {ui.page=UI_SET_TIME;init_time_editor();}
+        }else if(y>=119&&y<176){
+            if(col==0)ui.page=UI_WIFI;
+            else if(col==1){ui.page=UI_CONTACT;media_photo();}
+            else ui.page=UI_LOOK;
+        }else if(y>=188&&y<239)open_files();
+    }else if(ui.page==UI_ALARM){
+        if(y>=167&&y<204){
+            int col=x<80?0:x<160?1:x<240?2:3;
+            int step=col==0?-100:col==1?-1:col==2?1:100;
+            int v=ui.alarm_bp+step;
+            if(v<0)v+=10000;
+            if(v>=10000)v-=10000;
+            ui.alarm_bp=(uint16_t)v;
             store();
+        }else if(y>=208){
+            ui.alarm_enabled=!ui.alarm_enabled;store();
         }
-        if(y>=229&&y<279){ui.alarm_enabled=!ui.alarm_enabled;store();}
-    } else if(ui.page==UI_TIMER){
-        if(y>=174&&y<216){
-            int step=x<66?-5:x<122?5:x<174?-1:1;
-            ui.timer_minutes+=step;
-            if(ui.timer_minutes<1)ui.timer_minutes=1;
-            if(ui.timer_minutes>120)ui.timer_minutes=120;
-        }
-        if(y>=238&&y<287){
+    }else if(ui.page==UI_TIMER){
+        if(y>=167&&y<204){
+            int col=x<80?0:x<160?1:x<240?2:3;
+            int step=col==0?-10:col==1?-1:col==2?1:10;
+            int v=ui.timer_bp+step;
+            if(v<1)v=1;if(v>999)v=999;
+            ui.timer_bp=(uint16_t)v;
+            /* Timer adjustments apply to the next run, not an active countdown. */
+            store();
+        }else if(y>=208){
             if(ui.timer_running){ui.timer_running=false;timer_deadline=0;}
-            else {timer_deadline=esp_timer_get_time()+(int64_t)ui.timer_minutes*60*1000000LL;
-                  ui.timer_running=true;}
-        }
-    } else if(ui.page==UI_SET_TIME){
-        if(y>=277){set_manual_time();return;}
-        if((y>=113&&y<145)||(y>=210&&y<243)){
-            int row=y>=210?1:0,col=(x-8)/76,localx=(x-8)%76;
-            if(col>=0&&col<=2 && localx>=0&&localx<72){
-                adjust_time_field(col,row,localx<36?-1:1);
+            else{
+                int64_t duration_us=(int64_t)ui.timer_bp*8640000LL;
+                timer_deadline=esp_timer_get_time()+duration_us;
+                ui.timer_seconds_left=(int)(duration_us/1000000);
+                ui.timer_running=true;
             }
         }
-    } else if(ui.page==UI_WIFI){
-        if(y>=125&&y<173)start_keyboard(x>=120);
-        else if(y>=184&&y<229)enable_portal();
-    } else if(ui.page==UI_KEYBOARD){
-        if(y>=88 && y<270){
-            int row=(y-88)/26,col=(x-10)/37;
-            int ix=row*6+col;
-            if(x>=10 && col>=0&&col<6&&ix>=0&&ix<42){
+    }else if(ui.page==UI_SET_TIME){
+        if(y>=50&&y<83 && x<=220){
+            ui.use_ntp=!ui.use_ntp;
+            if(ui.use_ntp){
+                if(wifi_connected)snpt_start_once();
+            }else if(sntp_running){
+                esp_sntp_stop();sntp_running=false;
+            }
+            store();
+            return;
+        }
+        if(ui.use_ntp)return;
+        if(y>=210){set_manual_time();return;}
+        int row=-1;
+        if(y>=99&&y<124)row=0;
+        if(y>=160&&y<185)row=1;
+        if(row>=0){
+            int col=x/102,localx=x%102;
+            if(col>=0&&col<3){
+                if(localx>=66&&localx<89)adjust_time_field(col,row,-1);
+                else if(localx>=89)adjust_time_field(col,row,1);
+            }
+        }
+    }else if(ui.page==UI_WIFI){
+        if(y>=106&&y<146)start_keyboard(x>=160);
+        else if(y>=156&&y<195)enable_portal();
+    }else if(ui.page==UI_KEYBOARD){
+        if(y>=82&&y<214){
+            int row=(y-82)/22,col=(x-5)/45;
+            int ix=row*7+col;
+            if(x>=5&&col>=0&&col<7&&ix>=0&&ix<42){
                 size_t n=strlen(ui.keyboard_value),max=ui.editing_password?63:32;
                 if(n<max){
                     char c="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-@!?"[ix];
-                    if(ui.keyboard_lower&&isalpha((unsigned char)c))c=(char)tolower((unsigned char)c);
-                    ui.keyboard_value[n]=c;ui.keyboard_value[n+1]=0;
+                    if(ui.keyboard_lower&&isalpha((unsigned char)c))
+                        c=(char)tolower((unsigned char)c);
+                    ui.keyboard_value[n]=c;
+                    ui.keyboard_value[n+1]=0;
                 }
             }
-        } else if(y>=275){
-            if(x<84)ui.keyboard_lower=!ui.keyboard_lower;
-            else if(x<159){size_t n=strlen(ui.keyboard_value);if(n)ui.keyboard_value[n-1]=0;}
+        }else if(y>=214){
+            if(x<102)ui.keyboard_lower=!ui.keyboard_lower;
+            else if(x<208){size_t n=strlen(ui.keyboard_value);if(n)ui.keyboard_value[n-1]=0;}
             else{
                 if(ui.editing_password){
                     snprintf(ui.password,sizeof ui.password,"%s",ui.keyboard_value);
-                    store();
-                    xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
-                }else{
-                    snprintf(ui.ssid,sizeof ui.ssid,"%.32s",ui.keyboard_value);
-                    store();
-                }
+                }else snprintf(ui.ssid,sizeof ui.ssid,"%.32s",ui.keyboard_value);
+                store();
                 ui.page=UI_WIFI;
+                /* Wi-Fi config is loaded at start; reconfigure on reboot. */
+                xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
             }
         }
-    } else if(ui.page==UI_LOOK){
-        if(y>=119&&y<165){ui.theme=(ui.theme+1)%3;store();}
-        if(y>=215&&y<260){
-            int v=ui.brightness+(x<118?-10:10);
-            if(v<3) v=3;
-            if(v>100) v=100;
-            ui.brightness=v;store();
+    }else if(ui.page==UI_LOOK){
+        if(y>=91&&y<137){ui.theme=(ui.theme+1)%4;store();}
+        if(y>=181&&y<225){
+            int v=ui.brightness+(x<160?-10:10);
+            if(v<3)v=3;
+            if(v>100)v=100;
+            ui.brightness=(uint8_t)v;store();
         }
+    }else if(ui.page==UI_FILES){
+        if(y>=166&&y<213){
+            if(x<106)media_select(-1,ui.file_name,sizeof ui.file_name);
+            else if(x<212)media_select(1,ui.file_name,sizeof ui.file_name);
+            else if(ui.file_name[0]){
+                media_open(ui.file_preview,sizeof ui.file_preview);
+                ui.page=UI_FILE_VIEW;
+            }
+        }else if(!ui.sd_ready && y>=70)open_files();
     }
 }
 void app_main(void)
