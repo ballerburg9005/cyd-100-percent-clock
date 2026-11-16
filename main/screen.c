@@ -244,7 +244,8 @@ static void fmt_duration(char *out,size_t n,int bp)
 }
 static void home(const ui_state_t *s)
 {
-    text(12,14,s->wifi_connected?"NTP / ONLINE":s->rtc_present?"RTC / OFFLINE":"LOCAL / OFFLINE",1,muted);
+    text(12,14,s->wifi_connected?(s->use_ntp?"NTP / ONLINE":"WIFI / ONLINE"):
+                    s->rtc_present?"RTC / OFFLINE":"LOCAL / OFFLINE",1,muted);
     button(255,5,60,34,"MENU",false);
     char label[48];
     if(s->time_valid){
