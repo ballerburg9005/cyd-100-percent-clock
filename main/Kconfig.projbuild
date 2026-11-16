@@ -1,7 +1,7 @@
 menu "100 Percent Clock board adjustments"
     config CLOCK_LCD_MIRROR_X
-        bool "Mirror display horizontally (if needed for your S022C revision)"
-        default n
+        bool "Mirror display horizontally (landscape S022C default)"
+        default y
     config CLOCK_LCD_MIRROR_Y
         bool "Mirror display vertically (if needed for your S022C revision)"
         default n
