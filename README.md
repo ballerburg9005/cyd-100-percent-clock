@@ -76,7 +76,7 @@ change. The display never prematurely rolls over to 100.00%.
 
 **Hardware notes:** The LCD is rotated to landscape; default touch mapping
 is native CST816S portrait (x: 0..239, y: 0..319) → landscape
-`x=raw_y, y=239-raw_x`. If taps are mirrored relative to visible buttons,
+`x=319-raw_y, y=raw_x`. If taps are mirrored relative to visible buttons,
 adjust the touch mirror/swap settings in `idf.py menuconfig` under
 **100 Percent Clock board adjustments**. Touch events also accept a new
 press after 350 ms, avoiding the original missed-release lockup.
