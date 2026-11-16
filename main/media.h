@@ -9,3 +9,5 @@ bool media_open(char *preview,size_t len);
 bool media_photo(void);
 const uint16_t *media_bitmap(void);
 bool media_has_bitmap(void);
+int media_index(void);
+int media_count(void);
