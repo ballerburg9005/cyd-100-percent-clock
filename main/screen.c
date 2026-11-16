@@ -211,7 +211,8 @@ static void fmt_day(char *out,size_t n,int bp)
 }
 static void fmt_duration(char *out,size_t n,int bp)
 {
-    if(bp<0)bp=0;if(bp>999)bp=999;
+    if(bp<0)bp=0;
+    if(bp>999)bp=999;
     snprintf(out,n,"%d.%02d%%",bp/100,bp%100);
 }
 static void home(const ui_state_t *s)
