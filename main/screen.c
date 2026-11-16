@@ -70,6 +70,7 @@ static const font_glyph_t FONT[] = {
  {'?',{14,17,1,2,4,0,4}}, {'@',{14,17,23,21,23,16,14}},
  {'_',{0,0,0,0,0,0,31}}, {'*',{0,21,14,31,14,21,0}},
  {'=',{0,0,31,0,31,0,0}}, {',',{0,0,0,0,4,4,8}},
+ {'[',{14,8,8,8,8,8,14}}, {']',{14,2,2,2,2,2,14}},
  {'a',{0,0,14,1,15,17,15}},
  {'b',{16,16,30,17,17,17,30}},
  {'c',{0,0,14,17,16,17,14}},
@@ -110,7 +111,8 @@ static const uint8_t *glyph(char c)
 {
     for (unsigned i = 0; i < sizeof(FONT)/sizeof(FONT[0]); ++i)
         if (FONT[i].ch == c) return FONT[i].row;
-    return FONT[sizeof(FONT)/sizeof(FONT[0]) - 1].row;
+    static const uint8_t question[7]={14,17,1,2,4,0,4};
+    return question;
 }
 static bool transfer_done(esp_lcd_panel_io_handle_t h, esp_lcd_panel_io_event_data_t *e, void *ctx)
 {
