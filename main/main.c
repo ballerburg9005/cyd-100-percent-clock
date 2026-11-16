@@ -564,13 +564,25 @@ void app_main(void)
     int last_timer_sec=-1;
     int64_t last_rtc_poll=0;
     int last_brightness=-1;
+    int64_t touch_feedback_deadline=0;
     bool last_connected=false,last_portal=false;
     ui.page=UI_HOME;
     screen_draw(&ui);
     while(true){
         int64_t now_us=esp_timer_get_time();
         int x=0,y=0;bool draw=false;
-        if(screen_poll_touch(&x,&y)){touch(x,y);draw=true;}
+        if(screen_poll_touch(&x,&y)){
+            ui.touch_feedback=true;
+            ui.touch_x=(int16_t)x;
+            ui.touch_y=(int16_t)y;
+            touch_feedback_deadline=now_us+500000LL;
+            touch(x,y);
+            draw=true;
+        }
+        if(ui.touch_feedback && now_us>=touch_feedback_deadline){
+            ui.touch_feedback=false;
+            draw=true;
+        }
         if(ui.portal_enabled && now_us>portal_deadline){
             disable_portal();draw=true;
         }
