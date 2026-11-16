@@ -471,16 +471,32 @@ esp_err_t screen_init(void)
 }
 bool screen_poll_touch(int *x,int *y)
 {
-    static bool pressed;
+    /* CST816S reports its native 240x320 sensor coordinates. Portrait data
+       becomes landscape x=raw_y, y=239-raw_x after the LCD's XY swap.
+       Unlike the original edge-only implementation, a missed release no
+       longer disables all subsequent touches. The 350ms limit also allows
+       deliberate press-and-hold on +/- without runaway repeats. */
+    static int last_x=-1,last_y=-1;
+    static int64_t last_trigger_us=0;
     uint8_t reg=0x02,d[5];
-    const esp_err_t err=i2c_master_write_read_device(I2C_PORT,TOUCH_ADDR,&reg,1,d,5,pdMS_TO_TICKS(22));
-    if(err!=ESP_OK || (d[0]&0x0F)==0) { pressed=false;return false; }
-    if(pressed)return false;
-    int xx=((d[1]&0x0f)<<8)|d[2], yy=((d[3]&0x0f)<<8)|d[4];
+    esp_err_t err=i2c_master_write_read_device(I2C_PORT,TOUCH_ADDR,
+                       &reg,1,d,5,pdMS_TO_TICKS(22));
+    if(err!=ESP_OK || (d[0]&0x0F)==0) {
+        last_x=-1;last_y=-1;
+        return false;
+    }
+    int raw_x=((d[1]&0x0f)<<8)|d[2];
+    int raw_y=((d[3]&0x0f)<<8)|d[4];
+    int xx=raw_y,yy=239-raw_x;
     if(CONFIG_CLOCK_TOUCH_SWAP_XY){int tmp=xx;xx=yy;yy=tmp;}
     if(CONFIG_CLOCK_TOUCH_MIRROR_X)xx=W-1-xx;
     if(CONFIG_CLOCK_TOUCH_MIRROR_Y)yy=H-1-yy;
     if(xx<0||xx>=W||yy<0||yy>=H)return false;
-    pressed=true;*x=xx;*y=yy;
+    const int64_t now=esp_timer_get_time();
+    int dx=xx-last_x,dy=yy-last_y;
+    if(last_x>=0 && dx*dx+dy*dy<1600 && now-last_trigger_us<350000)
+        return false;
+    last_x=xx;last_y=yy;last_trigger_us=now;
+    *x=xx;*y=yy;
     return true;
 }
