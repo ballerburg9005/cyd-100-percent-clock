@@ -1,6 +1,7 @@
 /* Native graphics: no LVGL, framebuffer or PSRAM required. */
 #include "screen.h"
 #include "big_font.h"
+#include "media.h"
 #include "esp_timer.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -137,6 +138,21 @@ static void button(int x,int y,int w,int h,const char *label,bool selected)
     rounded(x,y,w,h,8,selected?accent:card);
     int scale = text_w(label,2) <= w-6 ? 2:1;
     text(x+(w-text_w(label,scale))/2,y+(h-7*scale)/2,label,scale,selected?bg:ink);
+}
+static void image_preview(int x,int y,int w,int h)
+{
+    if(!media_has_bitmap())return;
+    const uint16_t *pixels=media_bitmap();
+    int from=top>y?top-y:0;
+    int to=top+STRIP-y;
+    if(to>h)to=h;
+    for(int dy=from;dy<to;dy++){
+        int sy=dy*MEDIA_BMP_SIZE/h;
+        for(int dx=0;dx<w;dx++){
+            int sx=dx*MEDIA_BMP_SIZE/w;
+            rect(x+dx,y+dy,1,1,pixels[sy*MEDIA_BMP_SIZE+sx]);
+        }
+    }
 }
 static void palette(int theme)
 {
@@ -334,13 +350,16 @@ static void contact_page(const ui_state_t *s)
     text(12,53,"A MESSAGE FROM THE MAKER",1,muted);
     text(12,78,"XMPP",2,accent);
     char tmp[50];
-    snprintf(tmp,sizeof tmp,"%.48s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
+    snprintf(tmp,sizeof tmp,"%.32s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
     text(12,100,tmp,1,ink);
     text(12,135,"EMAIL",2,accent);
-    snprintf(tmp,sizeof tmp,"%.48s",s->email[0]?s->email:"NOT CONFIGURED");
+    snprintf(tmp,sizeof tmp,"%.32s",s->email[0]?s->email:"NOT CONFIGURED");
     text(12,156,tmp,1,ink);
-    text(12,192,"PHOTO: FACE.BMP ON TF CARD",1,muted);
-    text(12,210,"EDIT DETAILS IN WIFI PORTAL",1,muted);
+    if(media_has_bitmap()){
+        rounded(232,76,81,81,5,card);
+        image_preview(237,81,71,71);
+    }else text(12,192,"PHOTO: FACE.BMP ON TF CARD",1,muted);
+    text(12,213,"EDIT DETAILS IN WIFI PORTAL",1,muted);
 }
 static void look_page(const ui_state_t *s)
 {
@@ -363,7 +382,7 @@ static void files_page(const ui_state_t *s)
         return;
     }
     char msg[60];
-    snprintf(msg,sizeof msg,"FILE %d",s->file_index+1);
+    snprintf(msg,sizeof msg,"FILE %d / %d",media_count()?media_index()+1:0,media_count());
     center(54,msg,2,muted);
     center(95,s->file_name[0]?s->file_name:"(EMPTY CARD)",1,ink);
     button(13,166,90,44,"PREV",false);
@@ -375,6 +394,11 @@ static void file_view(const ui_state_t *s)
 {
     header("FILE VIEW");
     text(9,59,s->file_name,1,accent);
+    if(media_has_bitmap()){
+        image_preview(112,82,96,96);
+        center(202,"24-BIT BMP IMAGE",1,muted);
+        return;
+    }
     const char *p=s->file_preview;
     int row=0;
     while(*p && row<8){
