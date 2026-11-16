@@ -1,5 +1,7 @@
 /* Native graphics: no LVGL, framebuffer or PSRAM required. */
 #include "screen.h"
+#include "big_font.h"
+#include "esp_timer.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,8 +19,8 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
-#define W 240
-#define H 320
+#define W 320
+#define H 240
 #define STRIP 16
 #define I2C_PORT I2C_NUM_0
 #define TOUCH_ADDR 0x15
@@ -138,213 +140,274 @@ static void button(int x,int y,int w,int h,const char *label,bool selected)
 }
 static void palette(int theme)
 {
-    /* Muted rose / glacial teal / honey. Contrast also works in low brightness. */
-    if (theme==1) {
-        bg=0x084F; card=0x122F; ink=0xEFFF; accent=0x85FF; muted=0x8CB4; edge=0x2B53;
-    } else if (theme==2) {
-        bg=0x1806; card=0x310B; ink=0xFFF1; accent=0xFE82; muted=0xBD2C; edge=0x5A4B;
-    } else {
-        bg=0x1022; card=0x2846; ink=0xFF9B; accent=0xFAED; muted=0xA48E; edge=0x408A;
+    /* Rose / glacial teal / honey / battery-oriented nearly-black. */
+    switch(theme){
+      case 1: bg=0x084F;card=0x122F;ink=0xEFFF;accent=0x85FF;muted=0x8CB4;edge=0x2B53;break;
+      case 2: bg=0x1806;card=0x310B;ink=0xFFF1;accent=0xFE82;muted=0xBD2C;edge=0x5A4B;break;
+      case 3: bg=0x0000;card=0x1082;ink=0xDF1B;accent=0xB36D;muted=0x7BEF;edge=0x2104;break;
+      default:bg=0x1022;card=0x2846;ink=0xFF9B;accent=0xFAED;muted=0xA48E;edge=0x408A;break;
     }
 }
 static void header(const char *label)
 {
-    text(13,17,label,2,ink);
-    rounded(169,10,59,32,7,card);
-    text(176,21,"BACK",1,ink);
-    rect(14,52,212,1,edge);
+    text(12,12,label,2,ink);
+    button(258,3,57,36,"BACK",false);
+    rect(9,43,302,1,edge);
 }
-static void segment(int x,int y,int w,int h,uint16_t c)
-{ rounded(x,y,w,h,3,c); }
-static void numeral(int x,int y,int d,uint16_t color)
+static void huge(int x,int y,const char *s,uint16_t color)
 {
-    static const uint8_t masks[10]={63,6,91,79,102,109,125,7,127,111};
-    const uint8_t m=masks[d%10];
-    const int w=42,h=76,t=7;
-    if (m&1) segment(x+t,y,w-2*t,t,color);                        // a
-    if (m&2) segment(x+w-t,y+t,t,h/2-t,color);                    // b
-    if (m&4) segment(x+w-t,y+h/2,t,h/2-t,color);                  // c
-    if (m&8) segment(x+t,y+h-t,w-2*t,t,color);                    // d
-    if (m&16) segment(x,y+h/2,t,h/2-t,color);                     // e
-    if (m&32) segment(x,y+t,t,h/2-t,color);                       // f
-    if (m&64) segment(x+t,y+h/2-t/2,w-2*t,t,color);               // g
-}
-static void percent_digits(int bp)
-{
-    /* 4 large digits, a decimal point and the % sign; width 225 px. */
-    int x=8,y=98;
-    int digits[]={bp/1000,(bp/100)%10,(bp/10)%10,bp%10};
-    for (int i=0;i<4;++i) {
-        numeral(x,y,digits[i],accent); x+=45;
-        if(i==1) { rounded(x+1,y+66,7,7,3,accent); x+=13; }
+    int cursor=x;
+    for(int i=0;s[i];i++){
+        int g=big_index(s[i]);
+        if(g<0){cursor+=14;continue;}
+        int width=big_width[g];
+        if(y+BIG_FONT_H>top && y<top+STRIP){
+            int from=top-y;
+            if(from<0)from=0;
+            int to=top+STRIP-y;
+            if(to>BIG_FONT_H)to=BIG_FONT_H;
+            for(int dy=from;dy<to;dy++)
+                for(int dx=0;dx<width;dx++)
+                    if(big_pixel(g,dx,dy))rect(cursor+dx,y+dy,1,1,color);
+        }
+        cursor+=width+1;
     }
-    rounded(x+2,y+15,7,7,3,accent);
-    rounded(x+17,y+53,7,7,3,accent);
-    for(int a=0;a<42;++a) rect(x+20-a/3,y+22+a,3,3,accent);
+}
+static void huge_center(int y,const char *s,uint16_t color)
+{
+    int width=0;
+    for(int i=0;s[i];++i){
+        int g=big_index(s[i]);
+        width+=g<0?14:big_width[g]+1;
+    }
+    huge((W-width)/2,y,s,color);
+}
+static int day_bp(const struct tm *t)
+{
+    int secs=t->tm_hour*3600+t->tm_min*60+t->tm_sec;
+    return (int)((int64_t)secs*10000/86400);
+}
+static void fmt_day(char *out,size_t n,int bp)
+{
+    if(bp<0)bp=0;
+    if(bp>9999)bp=9999;
+    snprintf(out,n,"%02d.%02d%%",bp/100,bp%100);
+}
+static void fmt_duration(char *out,size_t n,int bp)
+{
+    if(bp<0)bp=0;if(bp>999)bp=999;
+    snprintf(out,n,"%d.%02d%%",bp/100,bp%100);
 }
 static void home(const ui_state_t *s)
 {
-    center(25,"YOUR DAY, IN PERCENT",1,muted);
-    center(51,"ONE HUNDRED",2,ink);
-    rect(22,83,196,1,edge);
-    if (s->time_valid) {
-        int secs=s->local.tm_hour*3600+s->local.tm_min*60+s->local.tm_sec;
-        int basis=secs*10000/86400;
-        percent_digits(basis);
-    } else center(123,"SET THE TIME",2,accent);
-    char label[64];
-    if (s->time_valid) {
-        snprintf(label,sizeof label,"%02d:%02d:%02d",s->local.tm_hour,s->local.tm_min,s->local.tm_sec);
-        center(197,label,3,ink);
-        /* Full weekday name above ISO 8601 date. Both fit in portrait mode. */
+    text(12,14,s->wifi_connected?"NTP / ONLINE":s->rtc_present?"RTC / OFFLINE":"LOCAL / OFFLINE",1,muted);
+    button(255,5,60,34,"MENU",false);
+    char label[48];
+    if(s->time_valid){
+        fmt_day(label,sizeof label,day_bp(&s->local));
+        huge_center(65,label,accent);
+        snprintf(label,sizeof label,"%02d:%02d",s->local.tm_hour,s->local.tm_min);
+        center(150,label,2,ink);
         strftime(label,sizeof label,"%A",&s->local);
-        center(226,label,2,muted);
-        snprintf(label,sizeof label,"%04d-%02d-%02d",
-                 s->local.tm_year+1900,s->local.tm_mon+1,s->local.tm_mday);
-        center(247,label,2,muted);
-    } else center(197,"--:--:--",3,ink);
-    rounded(20,267,200,7,3,card);
-    if (s->time_valid) {
-        int secs=s->local.tm_hour*3600+s->local.tm_min*60+s->local.tm_sec;
-        int pixels=secs*200/86400;
-        if (pixels>0) rounded(20,267,pixels,7,3,accent);
+        center(180,label,2,muted);
+        snprintf(label,sizeof label,"%04d-%02d-%02d",s->local.tm_year+1900,
+                 s->local.tm_mon+1,s->local.tm_mday);
+        center(200,label,2,muted);
+        rounded(16,225,288,5,2,card);
+        int filled=day_bp(&s->local)*288/10000;
+        if(filled>0)rounded(16,225,filled,5,2,accent);
+    } else {
+        center(86,"SET TIME / CONNECT WIFI",2,accent);
+        center(149,"--:--",2,ink);
     }
-    if (s->alarm_ringing || s->timer_ringing) center(285,"TAP TO SILENCE",2,accent);
-    else button(77,283,86,33,"MENU",false);
-    text(10,307,s->rtc_present?"RTC":"SYS",1,muted);
-    text(182,307,s->wifi_connected?"WIFI":"OFFLINE",1,muted);
+    if(s->alarm_ringing||s->timer_ringing){
+        rounded(6,7,240,32,6,accent);
+        text(15,18,"TAP TO SILENCE",2,bg);
+    }
 }
 static void menu(void)
 {
     header("MENU");
-    button(12,69,104,53,"ALARM",false);button(124,69,104,53,"TIMER",false);
-    button(12,132,104,53,"SET TIME",false);button(124,132,104,53,"WIFI",false);
-    button(12,195,104,53,"GIFT",false);button(124,195,104,53,"LOOK",false);
-    center(277,"MAKE TODAY COUNT",1,muted);
+    button(10,54,95,55,"ALARM",false);
+    button(112,54,95,55,"TIMER",false);
+    button(214,54,95,55,"SET TIME",false);
+    button(10,119,95,55,"WIFI",false);
+    button(112,119,95,55,"CONTACT",false);
+    button(214,119,95,55,"LOOK",false);
+    button(96,188,128,46,"FILES",false);
 }
 static void alarm_page(const ui_state_t *s)
 {
     header("ALARM");
-    center(77,"DAILY ALARM",2,muted);
-    char b[20];
-    snprintf(b,sizeof b,"%02u:%02u",s->alarm_hour,s->alarm_minute);
-    center(111,b,4,ink);
-    button(18,163,48,42,"H-",false);button(71,163,48,42,"H+",false);
-    button(124,163,48,42,"M-",false);button(177,163,48,42,"M+",false);
-    button(20,229,200,48,s->alarm_enabled?"ALARM ON":"ALARM OFF",s->alarm_enabled);
-    center(288,"TAP TIME TO ADJUST",1,muted);
+    text(11,52,"DAILY ALARM IN DECIMAL TIME",1,muted);
+    char value[20],note[40];
+    fmt_day(value,sizeof value,s->alarm_bp);
+    huge_center(68,value,accent);
+    int sec=(s->alarm_bp*86400+5000)/10000;
+    snprintf(note,sizeof note,"%02d:%02d LOCAL",sec/3600%24,sec/60%60);
+    center(144,note,2,muted);
+    button(5,167,73,35,"-1.00",false);
+    button(84,167,73,35,"-0.01",false);
+    button(163,167,73,35,"+0.01",false);
+    button(242,167,73,35,"+1.00",false);
+    button(18,208,284,29,s->alarm_enabled?"ALARM ON":"ALARM OFF",s->alarm_enabled);
 }
 static void timer_page(const ui_state_t *s)
 {
     header("TIMER");
-    center(76,"KITCHEN TIMER",2,muted);
-    int left=s->timer_running ? s->timer_seconds_left : s->timer_minutes*60;
-    if (left<0) left=0;
-    char b[24];snprintf(b,sizeof b,"%02d:%02d",left/60,left%60);
-    center(114,b,4,ink);
-    button(16,174,48,40,"-5",false);button(69,174,48,40,"+5",false);
-    button(124,174,48,40,"-1",false);button(177,174,48,40,"+1",false);
-    button(19,238,202,47,s->timer_running?"STOP":"START",s->timer_running);
+    text(11,52,"DURATION / PERCENT OF 24H",1,muted);
+    int sec=s->timer_running?s->timer_seconds_left:
+            ((int64_t)s->timer_bp*86400+5000)/10000;
+    if(sec<0)sec=0;
+    int bp=s->timer_running?(int)((int64_t)sec*10000/86400):s->timer_bp;
+    char value[20],note[40];
+    fmt_duration(value,sizeof value,bp);
+    huge_center(68,value,accent);
+    snprintf(note,sizeof note,"%02d:%02d REMAINING",sec/60,sec%60);
+    center(144,note,2,muted);
+    button(5,167,73,35,"-0.10",false);
+    button(84,167,73,35,"-0.01",false);
+    button(163,167,73,35,"+0.01",false);
+    button(242,167,73,35,"+0.10",false);
+    button(18,208,284,29,s->timer_running?"STOP TIMER":"START TIMER",s->timer_running);
 }
 static void edit_time(const ui_state_t *s)
 {
     header("SET TIME");
+    button(16,50,185,30,s->use_ntp?"[X] USE NTP":"[ ] USE NTP",s->use_ntp);
+    if(s->use_ntp){
+        center(110,"TIME FROM INTERNET",2,accent);
+        center(149,s->wifi_connected?"CONNECTED / SYNC ON":"CONNECT WIFI FOR NTP",1,muted);
+        center(184,"TAP CHECKBOX FOR MANUAL",1,muted);
+        return;
+    }
     static const char *labels[]={"YEAR","MONTH","DAY","HOUR","MIN","SEC"};
     int vals[]={s->year,s->month,s->day,s->hour,s->minute,s->second};
     char b[20];
     for(int i=0;i<6;++i){
-        int row=i/3,col=i%3,x=8+col*76,y=67+row*97;
-        text(x+4,y,labels[i],1,muted);
+        int row=i/3,col=i%3,x=12+col*102,y=87+row*61;
+        text(x+3,y,labels[i],1,muted);
         snprintf(b,sizeof b,i==0?"%04d":"%02d",vals[i]);
-        text(x+4,y+19,b,2,ink);
-        button(x+2,y+46,31,30,"-",false);
-        button(x+37,y+46,31,30,"+",false);
+        text(x+5,y+12,b,2,ink);
+        button(x+54,y+12,21,20,"-",false);
+        button(x+77,y+12,21,20,"+",false);
     }
-    button(20,277,200,36,"SAVE TIME",true);
+    button(72,210,176,27,"SAVE LOCAL TIME",true);
 }
 static void wifi_page(const ui_state_t *s)
 {
     header("WIFI");
-    center(64,s->wifi_connected?"ONLINE":"NOT CONNECTED",2,s->wifi_connected?accent:muted);
-    char b[34];
-    snprintf(b,sizeof b,"SSID: %.19s",s->ssid[0]?s->ssid:"(NOT SET)");
-    center(94,b,1,ink);
-    button(15,125,100,44,"SSID",false);button(125,125,100,44,"PASSWORD",false);
-    button(15,184,210,43,s->portal_enabled?"PORTAL ON":"START PORTAL",s->portal_enabled);
-    if (s->portal_enabled) {
-        center(236,"CONNECT TO:",1,muted);
-        center(251,s->portal_ssid,1,ink);
-        snprintf(b,sizeof b,"PASS: %s",s->portal_password);
-        center(267,b,1,ink);
-        center(286,"192.168.4.1",1,accent);
-    } else center(244,"TOUCH EDIT OR USE WEB SETUP",1,muted);
+    center(51,s->wifi_connected?"ONLINE":"NOT CONNECTED",2,s->wifi_connected?accent:muted);
+    char text_buf[55];
+    snprintf(text_buf,sizeof text_buf,"SSID: %.32s",s->ssid[0]?s->ssid:"(NOT SET)");
+    center(78,text_buf,1,ink);
+    button(18,106,133,38,"EDIT SSID",false);
+    button(168,106,133,38,"EDIT PASSWORD",false);
+    button(49,156,222,37,s->portal_enabled?"PORTAL ACTIVE":"START WIFI PORTAL",s->portal_enabled);
+    if(s->portal_enabled){
+        center(197,s->portal_ssid,1,accent);
+        snprintf(text_buf,sizeof text_buf,"PASSWORD: %s",s->portal_password);
+        center(209,text_buf,1,ink);
+        center(224,"OPEN 192.168.4.1",1,ink);
+    }
 }
 static void keyboard_page(const ui_state_t *s)
 {
-    header(s->editing_password?"PASSWORD":"WIFI SSID");
-    char preview[24];
+    header(s->editing_password?"WIFI PASSWORD":"WIFI SSID");
+    char preview[43]={0};
     size_t len=strlen(s->keyboard_value);
-    if(s->editing_password) {
-        size_t count=len>19?19:len;
-        memset(preview,'*',count);preview[count]=0;
-    } else snprintf(preview,sizeof preview,"%.19s",s->keyboard_value+(len>19?len-19:0));
-    rounded(9,52,222,31,5,card);
-    text(15,62,preview,2,ink);
-    for(int i=0;i<42;++i){
-        int col=i%6,row=i/6,x=10+col*37,y=88+row*26;
+    snprintf(preview,sizeof preview,"%.40s",s->keyboard_value+(len>40?len-40:0));
+    rounded(10,48,300,30,4,card);
+    text(15,58,preview,1,ink); /* Visible plaintext, as requested. */
+    for(int i=0;i<42;i++){
+        int col=i%7,row=i/7,x=5+col*45,y=82+row*22;
         char letter[2]={keys[i],0};
-        button(x,y,34,24,letter,false);
+        button(x,y,43,20,letter,false);
     }
-    button(8,275,75,37,s->keyboard_lower?"LOWER":"UPPER",false);
-    button(87,275,68,37,"DEL",false);
-    button(159,275,73,37,"DONE",true);
+    button(5,214,91,25,s->keyboard_lower?"LOWER":"UPPER",false);
+    button(107,214,94,25,"DELETE",false);
+    button(211,214,104,25,"SAVE",true);
 }
-static void gift_page(const ui_state_t *s)
+static void contact_page(const ui_state_t *s)
 {
-    header("A LITTLE GIFT");
-    center(81,"JUST FOR YOU",2,accent);
-    rounded(20,126,200,111,10,card);
-    center(143,"A WHOLE DAY",2,ink);
-    center(166,"IS YOURS",2,ink);
-    char b[40];snprintf(b,sizeof b,"%.28s",s->gift[0]?s->gift:"MAKE IT BEAUTIFUL");
-    center(207,b,1,muted);
-    if(s->contact[0]){
-        char contact[36];snprintf(contact,sizeof contact,"%.29s",s->contact);
-        center(256,contact,1,accent);
-    }else center(256,"ADD CONTACT IN WIFI PORTAL",1,muted);
-    center(281,"ONE DAY AT A TIME",1,accent);
+    header("CONTACT");
+    text(12,53,"A MESSAGE FROM THE MAKER",1,muted);
+    text(12,78,"XMPP",2,accent);
+    char tmp[50];
+    snprintf(tmp,sizeof tmp,"%.48s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
+    text(12,100,tmp,1,ink);
+    text(12,135,"EMAIL",2,accent);
+    snprintf(tmp,sizeof tmp,"%.48s",s->email[0]?s->email:"NOT CONFIGURED");
+    text(12,156,tmp,1,ink);
+    text(12,192,"PHOTO: FACE.BMP ON TF CARD",1,muted);
+    text(12,210,"EDIT DETAILS IN WIFI PORTAL",1,muted);
 }
 static void look_page(const ui_state_t *s)
 {
     header("LOOK");
-    center(85,"CHOOSE YOUR COLOR",2,muted);
-    button(14,119,212,44,s->theme==0?"ROSE":s->theme==1?"GLACIER":"HONEY",true);
-    char b[30];snprintf(b,sizeof b,"BRIGHTNESS  %u%%",s->brightness);
-    center(185,b,2,ink);
-    button(28,215,72,43,"-",false);button(139,215,72,43,"+",false);
-    center(276,"AUTO DIMS AFTER IDLE",1,muted);
+    center(59,"COLOR SCHEME",2,muted);
+    const char *names[]={"ROSE","GLACIER","HONEY","DARK"};
+    button(35,91,250,42,names[s->theme%4],true);
+    char label[36];snprintf(label,sizeof label,"BRIGHTNESS: %u%%",s->brightness);
+    center(152,label,2,ink);
+    button(43,181,94,41,"DIM",false);
+    button(183,181,94,41,"BRIGHT",false);
+    text(12,228,"DIM AFTER 40 SECONDS IDLE",1,muted);
+}
+static void files_page(const ui_state_t *s)
+{
+    header("TF FILES");
+    if(!s->sd_ready){
+        center(97,"NO TF CARD MOUNTED",2,muted);
+        center(141,"INSERT CARD / REOPEN",1,ink);
+        return;
+    }
+    char msg[60];
+    snprintf(msg,sizeof msg,"FILE %d",s->file_index+1);
+    center(54,msg,2,muted);
+    center(95,s->file_name[0]?s->file_name:"(EMPTY CARD)",1,ink);
+    button(13,166,90,44,"PREV",false);
+    button(114,166,90,44,"NEXT",false);
+    button(215,166,91,44,"OPEN",true);
+    center(216,"TXT / BMP VIEW / MP3 NAME ONLY",1,muted);
+}
+static void file_view(const ui_state_t *s)
+{
+    header("FILE VIEW");
+    text(9,59,s->file_name,1,accent);
+    const char *p=s->file_preview;
+    int row=0;
+    while(*p && row<8){
+        char line[51]={0};int i=0;
+        while(*p && *p!='\n' && i<50)line[i++]=*p++;
+        if(*p=='\n')p++;
+        text(9,83+row*17,line,1,ink);
+        row++;
+    }
 }
 void screen_draw(const ui_state_t *s)
 {
-    if (!s || !strip) return;
+    if(!s||!strip)return;
     palette(s->theme);
     for(top=0;top<H;top+=STRIP){
         rect(0,top,W,STRIP,bg);
         switch(s->page){
-            case UI_HOME:home(s);break;
-            case UI_MENU:menu();break;
-            case UI_ALARM:alarm_page(s);break;
-            case UI_TIMER:timer_page(s);break;
-            case UI_SET_TIME:edit_time(s);break;
-            case UI_WIFI:wifi_page(s);break;
-            case UI_GIFT:gift_page(s);break;
-            case UI_LOOK:look_page(s);break;
-            case UI_KEYBOARD:keyboard_page(s);break;
+          case UI_HOME:home(s);break;
+          case UI_MENU:menu();break;
+          case UI_ALARM:alarm_page(s);break;
+          case UI_TIMER:timer_page(s);break;
+          case UI_SET_TIME:edit_time(s);break;
+          case UI_WIFI:wifi_page(s);break;
+          case UI_CONTACT:contact_page(s);break;
+          case UI_LOOK:look_page(s);break;
+          case UI_KEYBOARD:keyboard_page(s);break;
+          case UI_FILES:files_page(s);break;
+          case UI_FILE_VIEW:file_view(s);break;
         }
         esp_err_t e=esp_lcd_panel_draw_bitmap(panel,0,top,W,top+STRIP,strip);
-        if(e!=ESP_OK || xSemaphoreTake(finished,pdMS_TO_TICKS(700))!=pdTRUE){
-            ESP_LOGE("clock_screen","LCD stripe failed: %s",esp_err_to_name(e));
-            break;
+        if(e!=ESP_OK||xSemaphoreTake(finished,pdMS_TO_TICKS(700))!=pdTRUE){
+           ESP_LOGE("clock_screen","LCD stripe failed: %s",esp_err_to_name(e));
+           break;
         }
     }
 }
@@ -394,15 +457,16 @@ esp_err_t screen_init(void)
     ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io,&dc,&panel));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel,false));
+    ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel,true));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel,
                 CONFIG_CLOCK_LCD_MIRROR_X,CONFIG_CLOCK_LCD_MIRROR_Y));
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel,true));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel,true));
     strip=heap_caps_malloc(W*STRIP*2,MALLOC_CAP_DMA|MALLOC_CAP_INTERNAL);
     if(!strip)return ESP_ERR_NO_MEM;
+    big_font_init();
     screen_set_brightness(30);
-    ESP_LOGI("clock_screen","240x320 ST7789 i80 initialized");
+    ESP_LOGI("clock_screen","320x240 landscape ST7789 i80 initialized");
     return ESP_OK;
 }
 bool screen_poll_touch(int *x,int *y)
