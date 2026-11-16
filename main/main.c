@@ -458,7 +458,7 @@ static void touch(int x,int y)
                     store();
                     xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
                 }else{
-                    snprintf(ui.ssid,sizeof ui.ssid,"%s",ui.keyboard_value);
+                    snprintf(ui.ssid,sizeof ui.ssid,"%.32s",ui.keyboard_value);
                     store();
                 }
                 ui.page=UI_WIFI;
