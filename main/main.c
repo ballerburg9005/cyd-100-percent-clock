@@ -268,7 +268,7 @@ static esp_err_t web_home(httpd_req_t *req)
        "</style><h2>100% Clock</h2><p>Wi-Fi, time zone and contact information.</p>"
        "<form method=post action=/save>"
        "<label>Wi-Fi SSID<input name=ssid maxlength=32></label>"
-       "<label>Wi-Fi password<input name=pass type=password maxlength=63></label>"
+       "<label>Wi-Fi password (visible)<input name=pass type=text maxlength=63 autocapitalize=off autocomplete=off></label>"
        "<label>Time zone (POSIX)<input name=tz value='CET-1CEST,M3.5.0,M10.5.0/3' maxlength=79></label>"
        "<label>XMPP JID<input name=xmpp maxlength=64 placeholder='user@example.org'></label>"
        "<label>Email address<input name=email type=email maxlength=64></label>"
