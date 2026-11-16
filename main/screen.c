@@ -196,8 +196,12 @@ static void home(const ui_state_t *s)
     if (s->time_valid) {
         snprintf(label,sizeof label,"%02d:%02d:%02d",s->local.tm_hour,s->local.tm_min,s->local.tm_sec);
         center(197,label,3,ink);
-        strftime(label,sizeof label,"%a %d %b %Y",&s->local);
-        center(236,label,2,muted);
+        /* Full weekday name above ISO 8601 date. Both fit in portrait mode. */
+        strftime(label,sizeof label,"%A",&s->local);
+        center(226,label,2,muted);
+        snprintf(label,sizeof label,"%04d-%02d-%02d",
+                 s->local.tm_year+1900,s->local.tm_mon+1,s->local.tm_mday);
+        center(247,label,2,muted);
     } else center(197,"--:--:--",3,ink);
     rounded(20,267,200,7,3,card);
     if (s->time_valid) {
