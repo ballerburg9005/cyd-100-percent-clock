@@ -526,7 +526,7 @@ esp_err_t screen_init(void)
 bool screen_poll_touch(int *x,int *y)
 {
     /* CST816S reports its native 240x320 sensor coordinates. Portrait data
-       becomes landscape x=raw_y, y=239-raw_x after the LCD's XY swap.
+       becomes landscape x=319-raw_y, y=raw_x after the LCD's XY swap.
        Unlike the original edge-only implementation, a missed release no
        longer disables all subsequent touches. The 350ms limit also allows
        deliberate press-and-hold on +/- without runaway repeats. */
@@ -541,7 +541,7 @@ bool screen_poll_touch(int *x,int *y)
     }
     int raw_x=((d[1]&0x0f)<<8)|d[2];
     int raw_y=((d[3]&0x0f)<<8)|d[4];
-    int xx=raw_y,yy=239-raw_x;
+    int xx=319-raw_y,yy=raw_x;
     if(CONFIG_CLOCK_TOUCH_SWAP_XY){int tmp=xx;xx=yy;yy=tmp;}
     if(CONFIG_CLOCK_TOUCH_MIRROR_X)xx=W-1-xx;
     if(CONFIG_CLOCK_TOUCH_MIRROR_Y)yy=H-1-yy;
