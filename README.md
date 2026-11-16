@@ -19,7 +19,20 @@ cd cyd-100-percent-clock
 . ~/esp/esp-idf/export.sh
 idf.py set-target esp32
 idf.py build
-idf.py -p /dev/ttyUSB0 flash monitor
+idf.py -p /dev/ttyUSB0 flash
+```
+
+The flash command intentionally does **not** enter the serial monitor, so
+it returns control to your shell immediately. If you want debug output:
+
+```sh
+idf.py -p /dev/ttyUSB0 monitor
+```
+
+Exit monitor with **Ctrl+]**, or **Ctrl+T**, release, then **X**. On German
+keyboards Ctrl+] can be difficult to type. Ctrl+C is **not** the normal
+monitor exit shortcut. If the terminal consumes both shortcuts, close the
+monitor from another terminal or simply use flash without monitor.
 ```
 
 No Wi-Fi password is compiled into the firmware. On first boot, it starts a
