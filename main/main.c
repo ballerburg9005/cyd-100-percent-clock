@@ -8,6 +8,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include "screen.h"
+#include "media.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
 #include "driver/i2c.h"
@@ -40,7 +41,7 @@ static int64_t timer_deadline;
 static int64_t ring_deadline;
 static int last_alarm_date=-1;
 static int64_t last_touch_us;
-static bool sound_on;
+static int sound_hz;
 static void enable_portal(void);
 
 static uint8_t bcd(uint8_t x) { return (x>>4)*10+(x&15); }
@@ -105,10 +106,11 @@ static void store(void)
     nvs_set_str(h,"ssid",ui.ssid);
     nvs_set_str(h,"pass",ui.password);
     nvs_set_str(h,"tz",tz);
-    nvs_set_str(h,"gift",ui.gift);
-    nvs_set_str(h,"contact",ui.contact);
-    nvs_set_u8(h,"ah",ui.alarm_hour);
-    nvs_set_u8(h,"am",ui.alarm_minute);
+    nvs_set_str(h,"email",ui.email);
+    nvs_set_str(h,"xmpp",ui.xmpp);
+    nvs_set_u16(h,"abp",ui.alarm_bp);
+    nvs_set_u16(h,"tbp",ui.timer_bp);
+    nvs_set_u8(h,"ntp",ui.use_ntp);
     nvs_set_u8(h,"ae",ui.alarm_enabled);
     nvs_set_u8(h,"brightness",ui.brightness);
     nvs_set_u8(h,"theme",ui.theme);
@@ -120,37 +122,47 @@ static void load(void)
     memset(&ui,0,sizeof ui);
     ui.page=UI_HOME;
     ui.brightness=45;
-    ui.timer_minutes=5;
-    ui.alarm_hour=7;
-    strncpy(ui.gift,"MAKE IT BEAUTIFUL",sizeof(ui.gift)-1);
+    ui.timer_bp=35; /* ~5:02 in 24h percent */
+    ui.alarm_bp=2917; /* ~07:00 */
+    ui.use_ntp=true;
     nvs_handle_t h;
     if(nvs_open("clock",NVS_READONLY,&h)!=ESP_OK)return;
     size_t n=sizeof(ui.ssid);nvs_get_str(h,"ssid",ui.ssid,&n);
     n=sizeof(ui.password);nvs_get_str(h,"pass",ui.password,&n);
     n=sizeof(tz);nvs_get_str(h,"tz",tz,&n);
-    n=sizeof(ui.gift);nvs_get_str(h,"gift",ui.gift,&n);
-    n=sizeof(ui.contact);nvs_get_str(h,"contact",ui.contact,&n);
-    nvs_get_u8(h,"ah",&ui.alarm_hour);
-    nvs_get_u8(h,"am",&ui.alarm_minute);
+    n=sizeof(ui.email);nvs_get_str(h,"email",ui.email,&n);
+    n=sizeof(ui.xmpp);nvs_get_str(h,"xmpp",ui.xmpp,&n);
+    if(nvs_get_u16(h,"abp",&ui.alarm_bp)!=ESP_OK){
+        uint8_t h_old=7,m_old=0;
+        nvs_get_u8(h,"ah",&h_old);
+        nvs_get_u8(h,"am",&m_old);
+        ui.alarm_bp=(uint16_t)(((uint32_t)(h_old%24*3600+m_old%60*60)*10000)/86400);
+    }
+    nvs_get_u16(h,"tbp",&ui.timer_bp);
+    uint8_t ntp=1;
+    nvs_get_u8(h,"ntp",&ntp);
+    ui.use_ntp=ntp!=0;
     uint8_t v=0;
     if(nvs_get_u8(h,"ae",&v)==ESP_OK)ui.alarm_enabled=v!=0;
     nvs_get_u8(h,"brightness",&ui.brightness);
     nvs_get_u8(h,"theme",&ui.theme);
     nvs_close(h);
     if(ui.brightness<3||ui.brightness>100)ui.brightness=45;
-    ui.theme%=3;
-    ui.alarm_hour%=24;ui.alarm_minute%=60;
+    ui.theme%=4;
+    if(ui.alarm_bp>9999)ui.alarm_bp=2917;
+    if(ui.timer_bp<1||ui.timer_bp>999)ui.timer_bp=35;
 }
 static void set_tz(void)
 {
     setenv("TZ",tz,1);
     tzset();
 }
-static void sound(bool enabled)
+static void sound(int hz)
 {
-    if(enabled==sound_on)return;
-    sound_on=enabled;
-    ledc_set_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_1,enabled?340:0);
+    if(hz==sound_hz)return;
+    sound_hz=hz;
+    if(hz>0)ledc_set_freq(LEDC_LOW_SPEED_MODE,LEDC_TIMER_1,hz);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_1,hz>0?130:0);
     ledc_update_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_1);
 }
 static void speaker_init(void)
@@ -172,7 +184,7 @@ static void i2c_init(void)
 }
 static void snpt_start_once(void)
 {
-    if(sntp_running)return;
+    if(sntp_running || !ui.use_ntp)return;
     sntp_running=true;
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0,"pool.ntp.org");
@@ -253,13 +265,14 @@ static esp_err_t web_home(httpd_req_t *req)
        "margin:2em auto;padding:1em}input,textarea,button{display:block;padding:12px;"
        "box-sizing:border-box;width:100%;margin:10px 0;border-radius:8px;border:0}"
        "button{background:#efadc1;color:#101724;font-weight:bold}"
-       "</style><h2>100% Clock</h2><p>Set Wi-Fi, local time zone, and gift message.</p>"
+       "</style><h2>100% Clock</h2><p>Wi-Fi, time zone and contact information.</p>"
        "<form method=post action=/save>"
        "<label>Wi-Fi SSID<input name=ssid maxlength=32></label>"
        "<label>Wi-Fi password<input name=pass type=password maxlength=63></label>"
        "<label>Time zone (POSIX)<input name=tz value='CET-1CEST,M3.5.0,M10.5.0/3' maxlength=79></label>"
-       "<label>Short gift message<textarea name=gift maxlength=100>MAKE IT BEAUTIFUL</textarea></label>"
-       "<label>Contact / XMPP / email (optional)<input name=contact maxlength=100></label>"
+       "<label>XMPP JID<input name=xmpp maxlength=64 placeholder='user@example.org'></label>"
+       "<label>Email address<input name=email type=email maxlength=64></label>"
+       "<p>Place face.bmp (24-bit BMP) at the root of a microSD for the contact photo.</p>"
        "<button>Save and restart</button></form>"
        "<p>Clock runs offline too: MENU &gt; SET TIME. This setup AP closes after 10 minutes.</p>";
     httpd_resp_set_type(req,"text/html; charset=utf-8");
@@ -285,8 +298,8 @@ static esp_err_t web_save(httpd_req_t *req)
         if(strcmp(part,"ssid")==0)decode(ui.ssid,sizeof ui.ssid,eq);
         else if(strcmp(part,"pass")==0)decode(ui.password,sizeof ui.password,eq);
         else if(strcmp(part,"tz")==0)decode(tz,sizeof tz,eq);
-        else if(strcmp(part,"gift")==0)decode(ui.gift,sizeof ui.gift,eq);
-        else if(strcmp(part,"contact")==0)decode(ui.contact,sizeof ui.contact,eq);
+        else if(strcmp(part,"xmpp")==0)decode(ui.xmpp,sizeof ui.xmpp,eq);
+        else if(strcmp(part,"email")==0)decode(ui.email,sizeof ui.email,eq);
     }
     store();
     httpd_resp_sendstr(req,"<h2>Saved. Restarting clock.</h2>");
@@ -386,7 +399,7 @@ static void silence(void)
 {
     ui.alarm_ringing=false;
     ui.timer_ringing=false;
-    sound(false);
+    sound(0);
 }
 static void start_keyboard(bool password)
 {
