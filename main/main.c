@@ -419,6 +419,9 @@ static void open_files(void)
 }
 static void touch(int x,int y)
 {
+#ifdef CONFIG_CLOCK_TOUCH_DEBUG
+    ESP_LOGI(TAG,"touch x=%d y=%d page=%d",x,y,(int)ui.page);
+#endif
     last_touch_us=esp_timer_get_time();
     if(ui.alarm_ringing||ui.timer_ringing){silence();return;}
     if(ui.page==UI_HOME){ui.page=UI_MENU;return;}
