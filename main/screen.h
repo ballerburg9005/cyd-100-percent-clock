@@ -6,7 +6,7 @@
 
 typedef enum {
     UI_HOME, UI_MENU, UI_ALARM, UI_TIMER, UI_SET_TIME,
-    UI_WIFI, UI_GIFT, UI_LOOK, UI_KEYBOARD
+    UI_WIFI, UI_CONTACT, UI_LOOK, UI_KEYBOARD, UI_FILES, UI_FILE_VIEW
 } ui_page_t;
 
 typedef struct {
@@ -14,9 +14,13 @@ typedef struct {
     struct tm local;
     bool time_valid, rtc_present, wifi_connected, portal_enabled;
     bool alarm_enabled, alarm_ringing, timer_ringing, timer_running;
-    uint8_t alarm_hour, alarm_minute, brightness, theme;
-    int timer_minutes, timer_seconds_left;
-    char ssid[33], password[65], gift[101], contact[101], portal_password[16], portal_ssid[33];
+    uint8_t brightness, theme;
+    uint16_t alarm_bp; /* 0..9999 = percent hundredths of a local day */
+    uint16_t timer_bp; /* 1..999 = hundredths of a day, up to 9.99% */
+    bool use_ntp;
+    int timer_seconds_left;
+    char ssid[33], password[65], email[65], xmpp[65], portal_password[16], portal_ssid[33];
+    char file_name[80], file_preview[240]; bool sd_ready; int file_index;
     bool editing_password, keyboard_lower;
     char keyboard_value[65];
     uint8_t hour, minute, second, day, month;
