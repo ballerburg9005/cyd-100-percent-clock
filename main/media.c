@@ -19,7 +19,7 @@ static const char *TAG="clock_media";
 static bool mounted, bus_ready, image_ready;
 static sdmmc_card_t *card;
 static char file_names[MAX_FILES][64];
-static int file_count,index;
+static int file_count,selected;
 static uint16_t bitmap[MEDIA_BMP_SIZE*MEDIA_BMP_SIZE];
 static uint16_t u16(const uint8_t *p) {return (uint16_t)p[0]|((uint16_t)p[1]<<8);}
 static uint32_t u32(const uint8_t *p) {return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
@@ -33,7 +33,7 @@ static bool ends(const char *name,const char *ext)
 }
 static void scan(void)
 {
-    file_count=0;index=0;
+    file_count=0;selected=0;
     DIR *dir=opendir("/sd");
     if(!dir)return;
     struct dirent *ent;
@@ -79,11 +79,11 @@ bool media_select(int direction,char *name,size_t len)
     if(!media_mount()){if(len)name[0]=0;return false;}
     if(file_count==0){if(len)name[0]=0;return true;}
     if(direction){
-        index+=direction;
-        if(index<0)index=file_count-1;
-        if(index>=file_count)index=0;
+        selected+=direction;
+        if(selected<0)selected=file_count-1;
+        if(selected>=file_count)selected=0;
     }
-    if(len)snprintf(name,len,"%s",file_names[index]);
+    if(len)snprintf(name,len,"%s",file_names[selected]);
     return true;
 }
 static bool bmp_read(const char *path)
@@ -122,7 +122,7 @@ bool media_open(char *preview,size_t len)
     if(len)preview[0]=0;
     image_ready=false;
     if(!mounted||file_count==0)return false;
-    char path[140];snprintf(path,sizeof path,"/sd/%s",file_names[index]);
+    char path[140];snprintf(path,sizeof path,"/sd/%s",file_names[selected]);
     if(ends(path,".bmp")){
         bool ok=bmp_read(path);
         if(len)snprintf(preview,len,ok?"BMP IMAGE: %dx%d THUMBNAIL":"UNSUPPORTED BMP",
@@ -151,5 +151,5 @@ bool media_photo(void)
 }
 const uint16_t *media_bitmap(void) {return bitmap;}
 bool media_has_bitmap(void) {return image_ready;}
-int media_index(void) {return index;}
+int media_index(void) {return selected;}
 int media_count(void) {return file_count;}
