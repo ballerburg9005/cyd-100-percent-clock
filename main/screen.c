@@ -275,7 +275,7 @@ static void menu(void)
     header("MENU");
     button(10,54,95,55,"ALARM",false);
     button(112,54,95,55,"TIMER",false);
-    button(214,54,95,55,"SET TIME",false);
+    button(214,54,95,55,"SET",false);
     button(10,119,95,55,"WIFI",false);
     button(112,119,95,55,"CONTACT",false);
     button(214,119,95,55,"LOOK",false);
@@ -458,6 +458,15 @@ void screen_draw(const ui_state_t *s)
           case UI_KEYBOARD:keyboard_page(s);break;
           case UI_FILES:files_page(s);break;
           case UI_FILE_VIEW:file_view(s);break;
+        }
+        /* A short, unmistakable tap marker shows the coordinates accepted
+           by the touch driver, even when no button action was matched.
+           This is particularly useful for diagnosing mirrored axes. */
+        if(s->touch_feedback){
+            int x=s->touch_x,y=s->touch_y;
+            rounded(x-9,y-9,19,19,9,ink);
+            rounded(x-6,y-6,13,13,6,bg);
+            rounded(x-3,y-3,7,7,3,accent);
         }
         esp_err_t e=esp_lcd_panel_draw_bitmap(panel,0,top,W,top+STRIP,strip);
         if(e!=ESP_OK||xSemaphoreTake(finished,pdMS_TO_TICKS(700))!=pdTRUE){
