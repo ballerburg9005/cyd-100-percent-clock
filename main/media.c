@@ -12,11 +12,13 @@
 #include "driver/gpio.h"
 #include "esp_vfs_fat.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "sdmmc_cmd.h"
 
 #define MAX_FILES 64
 static const char *TAG="clock_media";
 static bool mounted, bus_ready, image_ready;
+static int64_t retry_after_us;
 static sdmmc_card_t *card;
 static char file_names[MAX_FILES][64];
 static int file_count,selected;
@@ -47,6 +49,11 @@ static void scan(void)
 bool media_mount(void)
 {
     if(mounted)return true;
+    /* A missing TF card is normal: retry at most every 15 seconds.
+       Repeated taps must not cause a flood of SD initialization errors. */
+    const int64_t now=esp_timer_get_time();
+    if(now<retry_after_us)return false;
+    retry_after_us=now+15000000LL;
     if(!bus_ready){
         spi_bus_config_t bc={
             .mosi_io_num=23,.miso_io_num=19,.sclk_io_num=18,
@@ -70,7 +77,9 @@ bool media_mount(void)
         ESP_LOGW(TAG,"No usable TF card: %s",esp_err_to_name(e));
         return false;
     }
-    mounted=true;scan();
+    mounted=true;
+    retry_after_us=0;
+    scan();
     ESP_LOGI(TAG,"Mounted TF card, %d supported files",file_count);
     return true;
 }
