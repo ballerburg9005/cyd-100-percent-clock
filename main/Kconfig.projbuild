@@ -14,4 +14,7 @@ menu "100 Percent Clock board adjustments"
     config CLOCK_TOUCH_MIRROR_Y
         bool "Mirror touch Y coordinate"
         default n
+    config CLOCK_TOUCH_DEBUG
+        bool "Log touch coordinates to serial monitor"
+        default n
 endmenu
