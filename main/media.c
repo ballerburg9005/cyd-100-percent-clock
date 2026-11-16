@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "driver/sdspi_host.h"
+#include "driver/gpio.h"
 #include "esp_vfs_fat.h"
 #include "esp_log.h"
 #include "sdmmc_cmd.h"
@@ -150,3 +151,5 @@ bool media_photo(void)
 }
 const uint16_t *media_bitmap(void) {return bitmap;}
 bool media_has_bitmap(void) {return image_ready;}
+int media_index(void) {return index;}
+int media_count(void) {return file_count;}
