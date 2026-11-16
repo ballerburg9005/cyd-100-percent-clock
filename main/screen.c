@@ -27,8 +27,8 @@
 #define TOUCH_ADDR 0x15
 
 /* Kconfig defaults of 'n' are omitted from sdkconfig.h. */
-#ifndef CONFIG_CLOCK_LCD_MIRROR_X
-#define CONFIG_CLOCK_LCD_MIRROR_X 0
+#ifndef CONFIG_CLOCK_LCD_ROTATE_CW
+#define CONFIG_CLOCK_LCD_ROTATE_CW 0
 #endif
 #ifndef CONFIG_CLOCK_LCD_MIRROR_Y
 #define CONFIG_CLOCK_LCD_MIRROR_Y 0
@@ -513,7 +513,7 @@ esp_err_t screen_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel,true));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel,
-                CONFIG_CLOCK_LCD_MIRROR_X,CONFIG_CLOCK_LCD_MIRROR_Y));
+                CONFIG_CLOCK_LCD_ROTATE_CW,CONFIG_CLOCK_LCD_MIRROR_Y));
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel,true));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel,true));
     strip=heap_caps_malloc(W*STRIP*2,MALLOC_CAP_DMA|MALLOC_CAP_INTERNAL);
@@ -526,7 +526,7 @@ esp_err_t screen_init(void)
 bool screen_poll_touch(int *x,int *y)
 {
     /* CST816S reports its native 240x320 sensor coordinates. Portrait data
-       becomes landscape x=319-raw_y, y=raw_x after the LCD's XY swap.
+       becomes landscape x=319-raw_y, y=raw_x with the default X mirror.
        Unlike the original edge-only implementation, a missed release no
        longer disables all subsequent touches. The 350ms limit also allows
        deliberate press-and-hold on +/- without runaway repeats. */
@@ -541,7 +541,8 @@ bool screen_poll_touch(int *x,int *y)
     }
     int raw_x=((d[1]&0x0f)<<8)|d[2];
     int raw_y=((d[3]&0x0f)<<8)|d[4];
-    int xx=319-raw_y,yy=raw_x;
+    int xx=CONFIG_CLOCK_LCD_ROTATE_CW?319-raw_y:raw_y;
+    int yy=CONFIG_CLOCK_LCD_ROTATE_CW?raw_x:239-raw_x;
     if(CONFIG_CLOCK_TOUCH_SWAP_XY){int tmp=xx;xx=yy;yy=tmp;}
     if(CONFIG_CLOCK_TOUCH_MIRROR_X)xx=W-1-xx;
     if(CONFIG_CLOCK_TOUCH_MIRROR_Y)yy=H-1-yy;
