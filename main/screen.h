@@ -22,6 +22,8 @@ typedef struct {
     char ssid[33], password[65], email[65], xmpp[65], portal_password[16], portal_ssid[33];
     char file_name[80], file_preview[240]; bool sd_ready; int file_index;
     bool editing_password, keyboard_lower;
+    bool touch_feedback;
+    int16_t touch_x, touch_y;
     char keyboard_value[65];
     uint8_t hour, minute, second, day, month;
     int year;
