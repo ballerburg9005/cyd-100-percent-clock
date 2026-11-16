@@ -16,7 +16,7 @@ typedef struct {
     bool alarm_enabled, alarm_ringing, timer_ringing, timer_running;
     uint8_t alarm_hour, alarm_minute, brightness, theme;
     int timer_minutes, timer_seconds_left;
-    char ssid[33], password[65], gift[101], portal_password[16];
+    char ssid[33], password[65], gift[101], portal_password[16], portal_ssid[33];
     bool editing_password, keyboard_lower;
     char keyboard_value[65];
     uint8_t hour, minute, second, day, month;
