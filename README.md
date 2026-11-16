@@ -20,8 +20,9 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-No Wi-Fi password is compiled into the firmware. Start the clock, tap **MENU →
-WIFI → PORTAL** to enable a temporary setup AP. The screen shows the SSID,
+No Wi-Fi password is compiled into the firmware. On first boot, it starts a
+10-minute setup AP automatically. You can reopen it later via **MENU → WIFI →
+PORTAL**. The screen shows the SSID,
 device-specific eight-character password, and URL. Connect your phone to the
 AP and browse **http://192.168.4.1/**. Enter home Wi-Fi credentials, POSIX
 time-zone and a short gift message. The device restarts when you save.
