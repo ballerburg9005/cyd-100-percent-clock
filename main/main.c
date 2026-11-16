@@ -41,6 +41,7 @@ static int64_t ring_deadline;
 static int last_alarm_date=-1;
 static int64_t last_touch_us;
 static bool sound_on;
+static void enable_portal(void);
 
 static uint8_t bcd(uint8_t x) { return (x>>4)*10+(x&15); }
 static uint8_t binbcd(int x) { return (uint8_t)(((x/10)<<4)|(x%10)); }
@@ -196,8 +197,9 @@ static void start_wifi(void)
         ESP_ERROR_CHECK(esp_wifi_start());wifi_started=true;
         esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     }
-    /* With no credentials the radio stays off until user opens the portal.
-       A rechargeable clock should not keep a setup AP running indefinitely. */
+    /* First boot: allow phone provisioning for 10 minutes automatically,
+       then shut the AP off to conserve battery. */
+    if(!ui.ssid[0])enable_portal();
 }
 static void reboot_task(void *arg)
 {
