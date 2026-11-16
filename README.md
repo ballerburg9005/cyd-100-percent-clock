@@ -52,8 +52,9 @@ change. The display never prematurely rolls over to 100.00%.
 - **Timer**: kitchen timer with preset adjustments and start/stop.
 - **Set time**: offline year/month/day/hour/minute editor; saves RTC if found.
 - **Wi-Fi**: on-device SSID/password keyboard or short-lived setup access point.
-- **Gift**: customizable short text via setup portal; physical photo slot in
-  the proposed case. No owner's personal details or pictures are embedded.
+- **Gift**: customizable short text and optional contact/XMPP/email line via
+  setup portal; physical photo slot in the proposed case. No owner's personal
+  details or pictures are embedded.
 - **Look**: three color themes, manual backlight level. Idle dim retains an
   always-visible clock instead of turning the display off.
 
