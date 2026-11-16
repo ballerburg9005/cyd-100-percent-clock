@@ -282,6 +282,7 @@ static void enable_portal(void)
     esp_read_mac(mac,ESP_MAC_WIFI_STA);
     snprintf((char *)ap.ap.ssid,sizeof ap.ap.ssid,
              "100PERCENT-%02X%02X",mac[4],mac[5]);
+    snprintf(ui.portal_ssid,sizeof ui.portal_ssid,"%s",(char *)ap.ap.ssid);
     /* New random WPA2 key on each boot, visible on the clock itself. */
     snprintf(ui.portal_password,sizeof ui.portal_password,"%08lX",(unsigned long)esp_random());
     snprintf((char *)ap.ap.password,sizeof ap.ap.password,"%s",ui.portal_password);
@@ -320,6 +321,7 @@ static void disable_portal(void)
     } else {esp_wifi_set_mode(WIFI_MODE_NULL);wifi_started=false;}
     ui.portal_enabled=false;
     ui.portal_password[0]=0;
+    ui.portal_ssid[0]=0;
 }
 static void init_time_editor(void)
 {
