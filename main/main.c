@@ -552,7 +552,8 @@ void app_main(void)
     speaker_init();
     start_wifi();
     last_touch_us=esp_timer_get_time();
-    uint32_t last_sec=UINT32_MAX;
+    int last_day_bp=-1,previous_bp=-1,previous_day=-1;
+    int last_timer_sec=-1;
     int64_t last_rtc_poll=0;
     int last_brightness=-1;
     bool last_connected=false,last_portal=false;
@@ -574,27 +575,53 @@ void app_main(void)
             if(diff<=0){ui.timer_running=false;ui.timer_ringing=true;
                 ring_deadline=now_us+60000000LL;draw=true;}
         }
-        if(ui.time_valid && ui.alarm_enabled && ui.local.tm_hour==ui.alarm_hour
-           && ui.local.tm_min==ui.alarm_minute){
+        if(ui.time_valid){
             int today=ui.local.tm_year*400+ui.local.tm_yday;
-            if(last_alarm_date!=today){ui.alarm_ringing=true;last_alarm_date=today;
-                                      ring_deadline=now_us+60000000LL;draw=true;}
+            int sec=ui.local.tm_hour*3600+ui.local.tm_min*60+ui.local.tm_sec;
+            int bp=(int)((int64_t)sec*10000/86400);
+            if(ui.alarm_enabled && today!=last_alarm_date){
+                bool crossing=(previous_day==today && previous_bp<ui.alarm_bp &&
+                               bp>=ui.alarm_bp);
+                bool midnight=(previous_day!=-1 && previous_day!=today &&
+                               ui.alarm_bp==0);
+                if(crossing||midnight){
+                    ui.alarm_ringing=true;
+                    last_alarm_date=today;
+                    ring_deadline=now_us+60000000LL;
+                    draw=true;
+                }
+            }
+            previous_day=today;
+            previous_bp=bp;
+            if(bp!=last_day_bp){last_day_bp=bp;draw=true;}
         }
-        if((ui.alarm_ringing||ui.timer_ringing)&&now_us>ring_deadline){silence();draw=true;}
-        sound((ui.alarm_ringing||ui.timer_ringing)&&((now_us/200000)%2==0));
-        if(wifi_connected && ui.time_valid && ui.rtc_present &&
+        if(ui.timer_running && ui.timer_seconds_left!=last_timer_sec &&
+           ui.page==UI_TIMER){draw=true;}
+        last_timer_sec=ui.timer_seconds_left;
+        if((ui.alarm_ringing||ui.timer_ringing)&&now_us>ring_deadline){
+            silence();draw=true;
+        }
+        /* Three-note, relatively quiet alert instead of a 2.2kHz radio beep. */
+        int hz=0;
+        if(ui.alarm_ringing||ui.timer_ringing){
+            int note=(int)((now_us/185000)%16);
+            if(note==0)hz=523;
+            else if(note==1)hz=659;
+            else if(note==2||note==3)hz=784;
+        }
+        sound(hz);
+        if(wifi_connected && ui.use_ntp && ui.time_valid && ui.rtc_present &&
            now_us-last_rtc_poll>3600LL*1000000){
-            /* Periodic RTC correction: NTP runs when connected; RTC stores UTC. */
-            rtc_save(epoch);last_rtc_poll=now_us;
+            rtc_save(epoch);
+            last_rtc_poll=now_us;
         }
-        if((uint32_t)epoch!=last_sec){last_sec=(uint32_t)epoch;draw=true;}
         if(last_connected!=wifi_connected||last_portal!=ui.portal_enabled){
             last_connected=wifi_connected;last_portal=ui.portal_enabled;draw=true;
         }
         ui.wifi_connected=wifi_connected;
         int target_brightness=ui.brightness;
         if(now_us-last_touch_us>40000000LL){
-            target_brightness=(target_brightness*25)/100;
+            target_brightness=(target_brightness*(ui.theme==3?12:25))/100;
             if(target_brightness<3)target_brightness=3;
         }
         if(last_brightness!=target_brightness){
@@ -602,6 +629,6 @@ void app_main(void)
             last_brightness=target_brightness;
         }
         if(draw)screen_draw(&ui);
-        vTaskDelay(pdMS_TO_TICKS(70));
+        vTaskDelay(pdMS_TO_TICKS(40));
     }
 }
