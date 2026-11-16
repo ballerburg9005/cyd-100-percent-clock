@@ -46,6 +46,23 @@ static void enable_portal(void);
 static uint8_t bcd(uint8_t x) { return (x>>4)*10+(x&15); }
 static uint8_t binbcd(int x) { return (uint8_t)(((x/10)<<4)|(x%10)); }
 
+/* Portable UTC conversion: ESP-IDF's newlib does not declare timegm().
+ * Civil date -> Unix days, valid for the DS3231-supported years 2000..2099.
+ * Never change the process TZ: the clock concurrently displays local time. */
+static time_t utc_from_tm(const struct tm *t)
+{
+    int y = t->tm_year + 1900;
+    const int m = t->tm_mon + 1;
+    const int d = t->tm_mday;
+    y -= (m <= 2);
+    const int era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = (unsigned)(y - era * 400);
+    const unsigned doy = (unsigned)((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1);
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    const int64_t days = (int64_t)era * 146097 + (int64_t)doe - 719468;
+    return (time_t)(days * 86400 + t->tm_hour * 3600 + t->tm_min * 60 + t->tm_sec);
+}
+
 static void rtc_load(void)
 {
     uint8_t reg=0, d[7];
@@ -64,7 +81,7 @@ static void rtc_load(void)
     if(t.tm_year>=124 && t.tm_year<=199 && t.tm_mon>=0 && t.tm_mon<12 &&
        t.tm_mday>=1 && t.tm_mday<=31 && t.tm_hour<24 && t.tm_min<60 && t.tm_sec<60) {
         /* DS3231 is stored as UTC, independent of display timezone. */
-        time_t epoch=timegm(&t);
+        time_t epoch=utc_from_tm(&t);
         if(epoch>1700000000){struct timeval tv={.tv_sec=epoch};settimeofday(&tv,NULL);}
         ESP_LOGI(TAG,"DS3231 loaded (UTC)");
     } else ESP_LOGW(TAG,"DS3231 date invalid; NTP/manual time needed");
@@ -451,7 +468,8 @@ static void touch(int x,int y)
         if(y>=119&&y<165){ui.theme=(ui.theme+1)%3;store();}
         if(y>=215&&y<260){
             int v=ui.brightness+(x<118?-10:10);
-            if(v<3)v=3;if(v>100)v=100;
+            if(v<3) v=3;
+            if(v>100) v=100;
             ui.brightness=v;store();
         }
     }
