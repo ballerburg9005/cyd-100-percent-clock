@@ -373,7 +373,11 @@ static void init_time_editor(void)
 static void adjust_time_field(int col,int row,int delta)
 {
     if(row==0){
-        if(col==0){ui.year+=delta;if(ui.year<2024)ui.year=2099;if(ui.year>2099)ui.year=2024;}
+        if(col==0){
+            ui.year+=delta;
+            if(ui.year<2024)ui.year=2099;
+            if(ui.year>2099)ui.year=2024;
+        }
         if(col==1){int v=ui.month+delta;ui.month=v<1?12:v>12?1:v;}
         if(col==2){int v=ui.day+delta;ui.day=v<1?31:v>31?1:v;}
     }else{
@@ -453,7 +457,8 @@ static void touch(int x,int y)
             int col=x<80?0:x<160?1:x<240?2:3;
             int step=col==0?-10:col==1?-1:col==2?1:10;
             int v=ui.timer_bp+step;
-            if(v<1)v=1;if(v>999)v=999;
+            if(v<1)v=1;
+            if(v>999)v=999;
             ui.timer_bp=(uint16_t)v;
             /* Timer adjustments apply to the next run, not an active countdown. */
             store();
