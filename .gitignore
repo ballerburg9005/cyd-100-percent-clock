@@ -1,0 +1,9 @@
+# ESP-IDF generated build files
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+
+# Device provisioning credentials live in local sdkconfig/NVS, not Git
+*.log
+.DS_Store
