@@ -304,7 +304,10 @@ static void gift_page(const ui_state_t *s)
     center(166,"IS YOURS",2,ink);
     char b[40];snprintf(b,sizeof b,"%.28s",s->gift[0]?s->gift:"MAKE IT BEAUTIFUL");
     center(207,b,1,muted);
-    center(255,"CUSTOMIZE MESSAGE IN WIFI PORTAL",1,muted);
+    if(s->contact[0]){
+        char contact[36];snprintf(contact,sizeof contact,"%.29s",s->contact);
+        center(256,contact,1,accent);
+    }else center(256,"ADD CONTACT IN WIFI PORTAL",1,muted);
     center(281,"ONE DAY AT A TIME",1,accent);
 }
 static void look_page(const ui_state_t *s)
