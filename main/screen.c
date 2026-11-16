@@ -527,7 +527,7 @@ esp_err_t screen_init(void)
 bool screen_poll_touch(int *x,int *y)
 {
     /* CST816S reports its native 240x320 sensor coordinates. Portrait data
-       becomes landscape x=319-raw_y, y=raw_x with the default X mirror.
+       becomes landscape x=raw_y, y=239-raw_x with this board's LCD orientation.
        Unlike the original edge-only implementation, a missed release no
        longer disables all subsequent touches. The 350ms limit also allows
        deliberate press-and-hold on +/- without runaway repeats. */
@@ -542,8 +542,11 @@ bool screen_poll_touch(int *x,int *y)
     }
     int raw_x=((d[1]&0x0f)<<8)|d[2];
     int raw_y=((d[3]&0x0f)<<8)|d[4];
-    int xx=CONFIG_CLOCK_LCD_ROTATE_CW?319-raw_y:raw_y;
-    int yy=CONFIG_CLOCK_LCD_ROTATE_CW?raw_x:239-raw_x;
+    /* The board's CST816S axes run opposite the displayed landscape
+       orientation after swapping ST7789 XY. Correct both axes here,
+       independently of the LCD mirror configuration. */
+    int xx=CONFIG_CLOCK_LCD_ROTATE_CW?raw_y:319-raw_y;
+    int yy=CONFIG_CLOCK_LCD_ROTATE_CW?239-raw_x:raw_x;
     if(CONFIG_CLOCK_TOUCH_SWAP_XY){int tmp=xx;xx=yy;yy=tmp;}
     if(CONFIG_CLOCK_TOUCH_MIRROR_X)xx=W-1-xx;
     if(CONFIG_CLOCK_TOUCH_MIRROR_Y)yy=H-1-yy;
