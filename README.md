@@ -122,7 +122,7 @@ change. The display never prematurely rolls over to 100.00%.
   a 128×165 RGB565 thumbnail. **No SD card is needed for CONTACT.**
   The RELOAD SD button and SD status were removed from CONTACT; the separate
   TF FILES browser still supports SD cards. CONTACT has compact PLAY/STOP and
-  NEXT controls for previewing four original built-in chiptunes without any
+  NEXT controls for previewing five original built-in chiptunes without any
   TF card. XMPP, email and SMS are no
   longer truncated to 24 characters: long values continue over the photo,
   with a thin black text outline where more than three characters overlap.
@@ -163,15 +163,23 @@ change. The display never prematurely rolls over to 100.00%.
 
 ### Audio playback and available flash
 
-Four original melodies are built into firmware: CLASSIC CHIME, PIXEL SUNRISE,
-8-BIT RUSH and NIGHT CIRCUIT. CONTACT -> PLAY and NEXT work without a card.
+Five original melodies are built into firmware: CLASSIC CHIME, PIXEL SUNRISE,
+8-BIT RUSH, NIGHT CIRCUIT and 1999 RADIO CLOCK. The first four retain their
+previous sound IDs (existing alarm settings remain valid). The new tune is
+an original two-tone/triple-beep 1990s clock-radio alarm, evoking the
+digital alarm heard in Neo's apartment in *The Matrix* without copying
+its film soundtrack. CONTACT -> PLAY and NEXT work without a card.
 ALARM -> SOUND and TIMER -> SOUND choose independently from those melodies
 or open TF FILES to select a removable audio file. TF FILES also allows
 independent preview and one-tap assignment as an alarm or timer.
 
 Optional original RTTTL files are available under [chiptunes/](chiptunes/).
 Copy these `.rtttl` files to the **root** of a FAT32 TF card to play them.
-Other supported files: uncompressed RIFF PCM `.wav` (8- or 16-bit,
+Tracker modules (`.xm`, `.mod`, `.s3m`, `.it`) are richer chiptune formats,
+but are **not directly supported** by the firmware. Convert them on a PC to
+MP3 or PCM WAV before copying to TF. `libxmp-lite` is a possible future
+embedded decoder, though its RAM usage needs evaluation for this no-PSRAM
+board. Other supported files: uncompressed RIFF PCM `.wav` (8- or 16-bit,
 mono/stereo, 8–48 kHz) and standard MPEG Layer III `.mp3` (including ID3v2
 tags). Audio is rendered as **10 kHz, mono, 8-bit DAC**, via GPIO26's
 onboard speaker amplifier; expect lo-fi quality and reduced loudness.
@@ -181,7 +189,12 @@ This is new code, and actual timing/volume must be tested on the board.
 I2S DAC DMA share I2S0. Audio instead uses the DAC *oneshot* mode with
 a 10 kHz **task-dispatched esp_timer callback**, avoiding the high-frequency
 GPTimer interrupt that panicked on a physical S022C when TF playback started.
-The MP3 decoder runs in a separate FreeRTOS task.
+The MP3 decoder runs in a separate FreeRTOS task. Earlier firmware only
+allocated **8 KiB** of task stack, but minimp3's temporary decoding structure
+alone uses more than that; this could corrupt memory and trigger crashes in
+unrelated timer code. The decoder task now has **32 KiB**, and logs stack
+headroom while reading MP3 frames. This is a firmware correction; replay
+large MP3s on the actual board to verify it.
 
 **Flash:** The tested S022C has 4 MiB flash; the old default firmware had
 only a 1 MiB app partition. `partitions.csv` configures a **3 MiB factory
@@ -203,19 +216,20 @@ Do not use this 3 MiB partition table on a device with less than 4 MiB flash.
 GitHub Actions builds the public **fake-contact** variant. Locally generated
 firmware containing private contact details should not be uploaded publicly.
 
-**Hardware notes:** The LCD is rotated to landscape; default touch mapping
-is native CST816S portrait (x: 0..239, y: 0..319) → landscape
-`x=raw_y, y=239-raw_x` on the currently tested orientation. After the
-rotation/mirror mapping, a configurable **Touch edge expansion** (112% by
-default) stretches coordinates slightly away from the center and clamps
-them at the screen boundary. This is a provisional correction for the
-reported edge-shortfall, **not** a physical calibration. Change it under
-`idf.py menuconfig` → **100 Percent Clock board adjustments** or set it to
-100 to disable the correction. If taps are mirrored, use the separate
-touch mirror/swap options. The visible touch dot helps diagnose this.
+**Hardware notes:** The LCD is rotated to landscape and, by default, a
+further **180° flip** places the physical button and TF-card slot at the TOP.
+The same 180° transform is applied to the CST816S capacitive touch mapping,
+so the on-screen controls remain aligned. To restore the older layout, disable
+**Flip display and touch 180 degrees** in `idf.py menuconfig` →
+**100 Percent Clock board adjustments**, then rebuild/flash.
+A configurable **Touch edge expansion** (112% default) stretches coordinates
+slightly away from the center and clamps them to the screen; this is not a
+measured five-point calibration. The separate touch mirror/swap options
+remain available if required on other board revisions. The touch dot
+indicates what coordinates the firmware registered.
 
 **Not implemented:** streaming radio, XMPP messaging, RSS/news, weather,
-audio decoding, or battery percentage. These require separate network/audio
+tracker-module XM/MOD/S3M/IT decoding, or battery percentage. These require separate network/audio
 engines, security, and board-specific testing; no fake UI features are added.
 
 ### Pins for ESP32-2432S022C
