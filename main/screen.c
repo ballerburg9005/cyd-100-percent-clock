@@ -462,19 +462,27 @@ static void keyboard_page(const ui_state_t *s)
 static void contact_page(const ui_state_t *s)
 {
     header("CONTACT");
-    text(12,53,"A MESSAGE FROM THE MAKER",1,muted);
-    text(12,78,"XMPP",2,accent);
+    /* 140x140 photo fills 44% of screen width, with no gray frame.
+     * Reserve the left 150px for contact text to prevent image overlap. */
+    text(12,54,"A MESSAGE FROM THE MAKER",1,muted);
+    text(12,79,"XMPP",2,accent);
     char tmp[50];
-    snprintf(tmp,sizeof tmp,"%.32s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
-    text(12,100,tmp,1,ink);
-    text(12,135,"EMAIL",2,accent);
-    snprintf(tmp,sizeof tmp,"%.32s",s->email[0]?s->email:"NOT CONFIGURED");
-    text(12,156,tmp,1,ink);
-    if(media_has_bitmap()){
-        rounded(232,76,81,81,5,card);
-        image_preview(237,81,71,71);
-    }else text(12,192,"PHOTO: FACE.BMP ON TF CARD",1,muted);
-    text(12,213,"EDIT DETAILS IN WIFI PORTAL",1,muted);
+    snprintf(tmp,sizeof tmp,"%.24s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
+    text(12,105,tmp,1,ink);
+    text(12,140,"EMAIL",2,accent);
+    snprintf(tmp,sizeof tmp,"%.24s",s->email[0]?s->email:"NOT CONFIGURED");
+    text(12,166,tmp,1,ink);
+    if(media_has_bitmap())image_preview(168,54,140,140);
+    else {
+        text(172,100,"NO PHOTO",1,muted);
+        text(172,116,"FACE.BMP",1,muted);
+    }
+    if(media_is_mounted()){
+        if(media_has_bitmap())text(12,196,"SD: PHOTO OK",1,accent);
+        else text(12,196,media_photo_status(),1,muted);
+    }else text(12,196,media_sd_status(),1,muted);
+    text(12,225,"DETAILS VIA WIFI PORTAL",1,muted);
+    button(206,201,102,36,"RELOAD",false);
 }
 static void look_page(const ui_state_t *s)
 {
@@ -492,15 +500,19 @@ static void look_page(const ui_state_t *s)
 static void files_page(const ui_state_t *s)
 {
     header("TF FILES");
+    button(143,4,107,35,"RESCAN",false);
     if(!s->sd_ready){
-        center(97,"NO TF CARD MOUNTED",2,muted);
-        center(141,"INSERT CARD / REOPEN",1,ink);
+        center(84,"NO TF CARD MOUNTED",2,muted);
+        center(116,media_sd_status(),1,ink);
+        center(147,"INSERT CARD / PRESS RESCAN",1,muted);
+        button(76,184,168,43,"RETRY SD",false);
         return;
     }
     char msg[60];
     snprintf(msg,sizeof msg,"FILE %d / %d",media_count()?media_index()+1:0,media_count());
-    center(54,msg,2,muted);
-    center(95,s->file_name[0]?s->file_name:"(EMPTY CARD)",1,ink);
+    center(55,msg,2,muted);
+    center(78,media_sd_status(),1,muted);
+    center(108,s->file_name[0]?s->file_name:"(NO SUPPORTED FILES)",1,ink);
     button(13,166,90,44,"PREV",false);
     button(114,166,90,44,"NEXT",false);
     button(215,166,91,44,"OPEN",true);
