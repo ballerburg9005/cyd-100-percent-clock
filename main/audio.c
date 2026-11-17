@@ -41,6 +41,13 @@ static const tone_t rush[]={
  N(247,100),N(494,100),N(370,100),N(740,100),N(494,100),N(988,100),N(370,100),N(740,200),N(0,75),
  N(262,100),N(523,100),N(392,100),N(784,100),N(523,100),N(1047,100),N(392,100),N(784,330),N(0,150)
 };
+/* An original late-1990s bedside/radio alarm: closely spaced electronic
+ * double/triple beeps in alternating pitches, not a movie soundtrack sample. */
+static const tone_t clock1999[]={
+ N(1047,165),N(0,85),N(1047,165),N(0,85),N(1047,210),N(0,430),
+ N(988,165),N(0,85),N(988,165),N(0,85),N(988,210),N(0,450),
+ N(1175,175),N(0,95),N(1047,175),N(0,95),N(880,260),N(0,700)
+};
 static const tone_t night[]={
  N(196,250),N(0,85),N(294,125),N(349,125),N(392,250),N(294,125),N(262,125),N(196,250),N(0,85),
  N(220,250),N(0,85),N(330,125),N(392,125),N(440,250),N(330,125),N(294,125),N(220,250),N(0,100),
@@ -51,7 +58,8 @@ static const tune_t tunes[AUDIO_BUILTIN_COUNT]={
  {"CLASSIC CHIME",classic,sizeof classic/sizeof *classic},
  {"PIXEL SUNRISE",sunrise,sizeof sunrise/sizeof *sunrise},
  {"8-BIT RUSH",rush,sizeof rush/sizeof *rush},
- {"NIGHT CIRCUIT",night,sizeof night/sizeof *night}
+ {"NIGHT CIRCUIT",night,sizeof night/sizeof *night},
+ {"1999 RADIO CLOCK",clock1999,sizeof clock1999/sizeof *clock1999}
 };
 typedef enum {NONE,TUNES,WAV,MP3} format_t;
 typedef struct {
