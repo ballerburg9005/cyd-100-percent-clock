@@ -15,6 +15,7 @@ typedef struct {
     bool time_valid, rtc_present, wifi_connected, portal_enabled;
     bool alarm_enabled, alarm_ringing, timer_ringing, timer_running;
     uint8_t brightness, theme;
+    uint16_t portal_seconds_left; /* ten-minute setup AP countdown */
     uint16_t alarm_bp; /* 0..9999 = percent hundredths of a local day */
     uint16_t timer_bp; /* 1..999 = hundredths of a day, up to 9.99% */
     uint32_t timer_duration_ms; /* exact 300000ms default, not rounded 0.35% */
