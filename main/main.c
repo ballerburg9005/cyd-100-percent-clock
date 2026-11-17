@@ -436,6 +436,7 @@ static void enable_portal(void)
     /* APSTA inherits the home router's channel and can become hard to find.
      * Setup needs no internet, so use AP-only on channel 6 until it closes. */
     ui.portal_enabled=true;
+    ntp_updated=false;
     stop_wifi_radio();
     if(web_server){httpd_stop(web_server);web_server=NULL;}
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
@@ -656,11 +657,8 @@ static void touch(int x,int y)
     }else if(ui.page==UI_SET_TIME){
         if(y>=50&&y<83 && x<=220){
             ui.use_ntp=!ui.use_ntp;
-            if(ui.use_ntp){
-                if(wifi_connected)snpt_start_once();
-            }else if(sntp_running){
-                esp_sntp_stop();sntp_running=false;
-            }
+            if(ui.use_ntp)next_ntp_sync_us=0;
+            else stop_wifi_radio();
             store();
             return;
         }
@@ -777,10 +775,12 @@ void app_main(void)
     last_touch_us=esp_timer_get_time();
     int last_day_bp=-1,previous_bp=-1,previous_day=-1;
     int last_timer_sec=-1;
-    int64_t last_rtc_poll=0;
     int last_brightness=-1;
     int64_t touch_feedback_deadline=0;
-    bool last_connected=false,last_portal=false;
+    bool last_connected=false,last_portal=false,last_ntp_synced=false;
+    bool last_connecting=false,last_scanning=false;
+    uint16_t last_wifi_error=0;
+    ESP_LOGI(TAG,"Boot reset reason=%d",(int)esp_reset_reason());
     /* First boot should immediately show the AP credentials. */
     ui.page=ui.portal_enabled?UI_WIFI:UI_HOME;
     screen_draw(&ui);
@@ -806,6 +806,40 @@ void app_main(void)
             if(left!=ui.portal_seconds_left){
                 ui.portal_seconds_left=left;
                 if(ui.page==UI_WIFI)draw=true;
+            }
+        }
+        if(wifi_scan_active && wifi_scan_done){
+            receive_wifi_scan();
+            draw=true;
+        }
+        /* Keep Wi-Fi fully stopped between NTP polls, not just in modem sleep.
+         * The running ESP32 clock continues to tick with no network. */
+        if(!ui.portal_enabled && !wifi_scan_active){
+            if(!ui.use_ntp || !ui.ssid[0]){
+                if(wifi_started)stop_wifi_radio();
+            }else if(ntp_updated){
+                ntp_updated=false;
+                ui.ntp_synced=true;
+                time_t synced_epoch=time(NULL);
+                rtc_save(synced_epoch);
+                stop_wifi_radio();
+                next_ntp_sync_us=now_us+NTP_INTERVAL_US;
+                draw=true;
+            }else if(wifi_session_started_us &&
+                     now_us-wifi_session_started_us>=NTP_WINDOW_US){
+                ESP_LOGW(TAG,"NTP Wi-Fi window timed out after 35s");
+                stop_wifi_radio();
+                next_ntp_sync_us=now_us+NTP_INTERVAL_US;
+                draw=true;
+            }else if(!wifi_started && now_us>=next_ntp_sync_us){
+                start_ntp_radio();
+                draw=true;
+            }else if(wifi_started && !wifi_connected && wifi_retry_after_us &&
+                     now_us>=wifi_retry_after_us){
+                wifi_retry_after_us=0;
+                esp_err_t e=esp_wifi_connect();
+                if(e!=ESP_OK)wifi_retry_after_us=now_us+WIFI_RETRY_US;
+                draw=true;
             }
         }
         time_t epoch=time(NULL);
@@ -852,13 +886,18 @@ void app_main(void)
             else if(note==2||note==3)hz=784;
         }
         sound(hz);
-        if(wifi_connected && ui.use_ntp && ui.time_valid && ui.rtc_present &&
-           now_us-last_rtc_poll>3600LL*1000000){
-            rtc_save(epoch);
-            last_rtc_poll=now_us;
-        }
-        if(last_connected!=wifi_connected||last_portal!=ui.portal_enabled){
-            last_connected=wifi_connected;last_portal=ui.portal_enabled;draw=true;
+        if(last_connected!=wifi_connected || last_portal!=ui.portal_enabled ||
+           last_ntp_synced!=ui.ntp_synced ||
+           last_connecting!=ui.wifi_connecting ||
+           last_scanning!=ui.wifi_scanning ||
+           last_wifi_error!=ui.wifi_disconnect_reason){
+            last_connected=wifi_connected;
+            last_portal=ui.portal_enabled;
+            last_ntp_synced=ui.ntp_synced;
+            last_connecting=ui.wifi_connecting;
+            last_scanning=ui.wifi_scanning;
+            last_wifi_error=ui.wifi_disconnect_reason;
+            draw=true;
         }
         ui.wifi_connected=wifi_connected;
         int target_brightness=ui.brightness;
