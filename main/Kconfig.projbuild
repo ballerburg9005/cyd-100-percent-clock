@@ -2,6 +2,13 @@ menu "100 Percent Clock board adjustments"
     config CLOCK_LCD_ROTATE_CW
         bool "Use S022C clockwise landscape mapping for LCD and touch"
         default y
+    config CLOCK_DISPLAY_FLIP_180
+        bool "Flip display and touch 180 degrees (button and TF card on top)"
+        default y
+        help
+            Turn the completed landscape user interface upside down relative
+            to the old layout. Applies equally to LCD and touch, so buttons
+            remain correctly mapped. Disable if your housing is reversed.
     config CLOCK_LCD_MIRROR_Y
         bool "Mirror display vertically (if needed for your S022C revision)"
         default n
