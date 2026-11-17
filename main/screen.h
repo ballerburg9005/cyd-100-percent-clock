@@ -16,6 +16,7 @@ typedef struct {
     bool wifi_connecting, wifi_scanning;
     uint16_t wifi_disconnect_reason;
     bool alarm_enabled, alarm_ringing, timer_ringing, timer_running;
+    bool alert_flash; /* short visual pulse while alarm or timer rings */
     uint8_t brightness, theme;
     uint16_t portal_seconds_left; /* ten-minute setup AP countdown */
     uint8_t wifi_scan_count, wifi_scan_page;
