@@ -15,6 +15,15 @@ jobs:
           . /opt/esp/idf/export.sh
           idf.py set-target esp32
           idf.py build
+      - name: Reject legacy DAC constructor in experimental firmware
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          if xtensa-esp32-elf-nm build/cyd_100_percent_clock.elf | grep -q 'check_dac_legacy_driver_conflict'; then
+            echo 'ERROR: Legacy DAC constructor linked: would abort at boot with dac_oneshot.'
+            exit 1
+          fi
+          echo 'Verified: no legacy DAC startup conflict constructor linked.'
       - name: Upload firmware
         if: success()
         uses: actions/upload-artifact@v4
