@@ -1,7 +1,9 @@
 /* Audio for the ESP32-2432S022C.
  * LCD i80 uses I2S0, as would DAC DMA: never use DAC continuous mode.
- * Instead a 16 kHz GPTimer interrupt updates GPIO26 DAC channel 1,
+ * Instead a 10 kHz task-dispatched esp_timer updates GPIO26 DAC channel 1,
  * while a FreeRTOS task decodes SD files / generates ORIGINAL melodies.
+ * Avoid GPTimer's high-frequency hardware ISR: the previous version
+ * panicked in gptimer_default_isr when TF audio playback was started.
  * MP3 decoder: minimp3 (CC0), see minimp3-LICENSE.txt.
  */
 #include "audio.h"
@@ -12,8 +14,7 @@
 #include <string.h>
 #include <strings.h>
 #include "driver/dac_oneshot.h"
-#include "driver/gptimer.h"
-#include "esp_attr.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,7 +23,7 @@
 #define MINIMP3_IMPLEMENTATION
 #include "minimp3.h"
 
-#define RATE 16000u
+#define RATE 10000u
 #define RING 4096u
 #define MP3BUF 8192u
 #define WAVBUF 2048u
@@ -77,7 +78,7 @@ typedef struct {
 } source_t;
 static source_t src;
 static SemaphoreHandle_t lock;
-static gptimer_handle_t timer;
+static esp_timer_handle_t timer;
 static dac_oneshot_handle_t output;
 static char request[AUDIO_KEY_MAX];
 static bool request_loop;
@@ -92,7 +93,7 @@ const char *audio_builtin_name(int i)
 void audio_builtin_key(int i,char *out,size_t len)
 {if(len)snprintf(out,len,"builtin:%d",i>=0&&i<AUDIO_BUILTIN_COUNT?i:0);}
 void audio_sd_key(const char *name,char *out,size_t len)
-{if(len)snprintf(out,len,"sd:%.63s",name?name:"");}
+{if(len)snprintf(out,len,"sd:%s",name?name:"");}
 static bool has_ext(const char *name,const char *suffix)
 {size_t a=strlen(name),b=strlen(suffix);return a>=b&&!strcasecmp(name+a-b,suffix);}
 bool audio_file_supported(const char *name)
@@ -117,8 +118,9 @@ bool audio_playing(void){return playback_active;}
 void audio_stop(void)
 {
  audio_play_key("",false);
- /* The stream closes in the worker, so avoid unmounting an open TF file. */
- for(int i=0;i<30 && playback_active;++i)vTaskDelay(pdMS_TO_TICKS(10));
+ /* Wait for stream close before an SD rescan can unmount it.
+  * Large MP3 files remain streamed; never load the whole file into RAM. */
+ for(int i=0;i<200 && playback_active;++i)vTaskDelay(pdMS_TO_TICKS(10));
 }
 static uint16_t rd16(const uint8_t *b){return (uint16_t)b[0]|((uint16_t)b[1]<<8);}
 static uint32_t rd32(const uint8_t *b){return (uint32_t)rd16(b)|((uint32_t)rd16(b+2)<<16);}
@@ -301,7 +303,7 @@ static bool open_source(source_t *s,const char *key,bool loop)
  if(strncmp(key,"sd:",3)||!key[3])return false;
  const char *name=key+3;
  if(strchr(name,'/')||strchr(name,'\\')||strstr(name,".."))return false;
- char path[112];snprintf(path,sizeof path,"/sd/%s",name);
+ char path[160];snprintf(path,sizeof path,"/sd/%s",name);
  s->file=fopen(path,"rb");
  if(!s->file)return false;
  if(has_ext(name,".rtttl"))return load_rtttl(s);
@@ -332,15 +334,14 @@ static bool rewind_source(source_t *s)
  }
  return false;
 }
-static bool IRAM_ATTR audio_tick(gptimer_handle_t h,
-                                const gptimer_alarm_event_data_t *ev,void *ctx)
+static void audio_tick(void *ctx)
 {
- (void)h;(void)ev;(void)ctx;
+ (void)ctx;
+ /* In esp_timer TASK context, no custom hardware ISR. Never decode here. */
  uint32_t tail=consumer;
  uint8_t v=128;
  if(tail!=producer){v=fifo[tail&(RING-1)];consumer=tail+1;}
  dac_oneshot_output_voltage(output,v);
- return false;
 }
 static void audio_worker(void *arg)
 {
@@ -356,14 +357,14 @@ static void audio_worker(void *arg)
     snprintf(wanted,sizeof wanted,"%s",request);
     bool loop=request_loop;
     xSemaphoreGive(lock);
-    if(running){gptimer_stop(timer);running=false;}
+    if(running){esp_timer_stop(timer);running=false;}
     consumer=producer;
     close_source(&src);finished=false;playback_active=false;
     if(wanted[0]){
      bool ok=open_source(&src,wanted,loop);
      if(!ok){ESP_LOGW(TAG,"Unavailable TF audio, using built-in chime");
               ok=open_source(&src,"builtin:0",loop);}
-     if(ok){gptimer_start(timer);running=playback_active=true;}
+     if(ok){esp_timer_start_periodic(timer,1000000u/RATE);running=playback_active=true;}
     }else dac_oneshot_output_voltage(output,128);
     continue;
    }
@@ -372,7 +373,7 @@ static void audio_worker(void *arg)
   if(!running){vTaskDelay(pdMS_TO_TICKS(25));continue;}
   uint32_t fill=producer-consumer;
   if(finished){
-   if(!fill){gptimer_stop(timer);running=playback_active=false;
+   if(!fill){esp_timer_stop(timer);running=playback_active=false;
              close_source(&src);dac_oneshot_output_voltage(output,128);}
    else vTaskDelay(pdMS_TO_TICKS(5));
    continue;
@@ -399,19 +400,18 @@ void audio_init(void)
  esp_err_t e=dac_oneshot_new_channel(&dac_cfg,&output);
  if(e!=ESP_OK){ESP_LOGE(TAG,"GPIO26 DAC unavailable: %s",esp_err_to_name(e));return;}
  dac_oneshot_output_voltage(output,128);
- gptimer_config_t timer_cfg={
-  .clk_src=GPTIMER_CLK_SRC_DEFAULT,
-  .direction=GPTIMER_COUNT_UP,.resolution_hz=1000000
+ /* ESP timer's task dispatch keeps DAC writes out of GPTimer hardware
+  * interrupts; also avoids I2S0 used by the parallel LCD. */
+ esp_timer_create_args_t timer_cfg={
+  .callback=audio_tick,
+  .arg=NULL,
+  .dispatch_method=ESP_TIMER_TASK,
+  .name="clock_pcm",
+  .skip_unhandled_events=true
  };
- e=gptimer_new_timer(&timer_cfg,&timer);
- if(e!=ESP_OK){ESP_LOGE(TAG,"Timer unavailable: %s",esp_err_to_name(e));return;}
- gptimer_event_callbacks_t callbacks={.on_alarm=audio_tick};
- ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer,&callbacks,NULL));
- ESP_ERROR_CHECK(gptimer_enable(timer));
- gptimer_alarm_config_t alarm={.alarm_count=1000000u/RATE,
-                              .reload_count=0,.flags.auto_reload_on_alarm=true};
- ESP_ERROR_CHECK(gptimer_set_alarm_action(timer,&alarm));
+ e=esp_timer_create(&timer_cfg,&timer);
+ if(e!=ESP_OK){ESP_LOGE(TAG,"Audio timer unavailable: %s",esp_err_to_name(e));return;}
  if(xTaskCreatePinnedToCore(audio_worker,"clock_audio",8192,NULL,4,NULL,1)!=pdPASS)
   ESP_LOGE(TAG,"Cannot create audio worker");
- else ESP_LOGI(TAG,"GPIO26 DAC + 16kHz GPTimer (independent from LCD I2S0)");
+ else ESP_LOGI(TAG,"GPIO26 DAC + 10kHz esp_timer TASK (no GPTimer ISR / LCD I2S0)");
 }

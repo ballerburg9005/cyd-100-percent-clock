@@ -20,7 +20,7 @@ static const char *TAG="clock_media";
 static bool mounted, bus_ready, image_ready;
 static int64_t retry_after_us;
 static sdmmc_card_t *card;
-static char file_names[MAX_FILES][64];
+static char file_names[MAX_FILES][128];
 static int file_count,selected;
 static char sd_status[48]="NOT CHECKED", photo_status[48]="NOT LOADED";
 static uint16_t bitmap[MEDIA_BMP_WIDTH*MEDIA_BMP_HEIGHT];
@@ -44,7 +44,13 @@ static void scan(void)
         if(ent->d_name[0]=='.')continue;
         if(!ends(ent->d_name,".txt")&&!ends(ent->d_name,".bmp") &&
            !audio_file_supported(ent->d_name))continue;
-        snprintf(file_names[file_count++],64,"%.63s",ent->d_name);
+        /* FAT names may contain multibyte UTF-8. Never silently chop a
+         * pathname into an unopenable or invalid UTF-8 fragment. */
+        if(strlen(ent->d_name)>=sizeof file_names[0]){
+            ESP_LOGW(TAG,"Skipping filename longer than %u bytes",(unsigned)(sizeof file_names[0]-1));
+            continue;
+        }
+        snprintf(file_names[file_count++],sizeof file_names[0],"%s",ent->d_name);
     }
     closedir(dir);
     snprintf(sd_status,sizeof sd_status,"MOUNT OK / %d FILES",file_count);

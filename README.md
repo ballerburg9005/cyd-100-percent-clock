@@ -103,6 +103,10 @@ change. The display never prematurely rolls over to 100.00%.
   middle and SAVE on the right. Supports 8–63-character WPA2 passphrases
   or **exactly 64 hexadecimal characters** (the WPA2 raw PSK format);
   invalid keys are rejected without deleting the typed text.
+  Enabling NTP or saving changed Wi-Fi credentials requests an immediate
+  network sync when a saved SSID is available. **SET TIME → SYNC NOW** retries
+  on demand, with status for connecting, waiting for NTP, missing SSID and
+  Wi-Fi authentication failures. Every boot attempts NTP when enabled.
   **WIFI → SCAN** lists nearby SSIDs with their exact case, so users need not
   guess capitalization; manual typing is still available. The phone/PC
   setup portal at `http://192.168.4.1/` is much faster for long keys:
@@ -153,7 +157,9 @@ change. The display never prematurely rolls over to 100.00%.
   as the corresponding alert. MP3 playback uses the CC0 minimp3 decoder.
   JPEG/PNG, EPUB, folders and other binary decoders remain unavailable.
   A missing TF card cannot prevent boot; selecting a missing TF alert sound
-  falls back to the built-in chime.
+  falls back to the built-in chime. FAT filenames are preserved as UTF-8
+  byte sequences rather than chopped at 63 bytes. Overlong names are skipped
+  instead of opening a damaged path.
 
 ### Audio playback and available flash
 
@@ -167,13 +173,14 @@ Optional original RTTTL files are available under [chiptunes/](chiptunes/).
 Copy these `.rtttl` files to the **root** of a FAT32 TF card to play them.
 Other supported files: uncompressed RIFF PCM `.wav` (8- or 16-bit,
 mono/stereo, 8–48 kHz) and standard MPEG Layer III `.mp3` (including ID3v2
-tags). Audio is rendered as **16 kHz, mono, 8-bit DAC**, via GPIO26's
+tags). Audio is rendered as **10 kHz, mono, 8-bit DAC**, via GPIO26's
 onboard speaker amplifier; expect lo-fi quality and reduced loudness.
 This is new code, and actual timing/volume must be tested on the board.
 
 **Why no I2S DAC DMA?** On ESP32, the i80 parallel LCD and internal
 I2S DAC DMA share I2S0. Audio instead uses the DAC *oneshot* mode with
-a 16 kHz GPTimer callback, keeping the display peripheral independent.
+a 10 kHz **task-dispatched esp_timer callback**, avoiding the high-frequency
+GPTimer interrupt that panicked on a physical S022C when TF playback started.
 The MP3 decoder runs in a separate FreeRTOS task.
 
 **Flash:** The tested S022C has 4 MiB flash; the old default firmware had

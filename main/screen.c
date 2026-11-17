@@ -361,11 +361,19 @@ static void edit_time(const ui_state_t *s)
     header("SET TIME");
     button(16,50,185,30,s->use_ntp?"[X] USE NTP":"[ ] USE NTP",s->use_ntp);
     if(s->use_ntp){
-        center(110,"TIME FROM INTERNET",2,accent);
-        center(149,s->wifi_connected?"SYNCING FROM INTERNET":
-                   s->ntp_synced?"TIME SYNCED / RADIO OFF":
-                   "WIFI SYNC PENDING",1,muted);
-        center(184,"TAP CHECKBOX FOR MANUAL",1,muted);
+        center(103,"TIME FROM INTERNET",2,accent);
+        const char *status=s->wifi_connected?"CONNECTED - WAITING FOR NTP":
+                           s->wifi_connecting?"CONNECTING TO WIFI":
+                           s->ntp_synced?"NTP SYNCED / RADIO OFF":
+                           !s->ssid[0]?"SET WIFI SSID FIRST":
+                           s->wifi_disconnect_reason==WIFI_REASON_NO_AP_FOUND?
+                             "WIFI SSID NOT FOUND":
+                           s->wifi_disconnect_reason==WIFI_REASON_AUTH_FAIL ||
+                           s->wifi_disconnect_reason==WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT?
+                             "CHECK WIFI PASSWORD":"SYNC PENDING / OFFLINE";
+        center(141,status,1,s->ntp_synced?accent:muted);
+        button(83,183,154,43,"SYNC NOW",false);
+        center(231,"TOGGLE NTP FOR MANUAL SET",1,muted);
         return;
     }
     static const char *labels[]={"YEAR","MONTH","DAY","HOUR","MIN","SEC"};
