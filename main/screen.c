@@ -587,7 +587,15 @@ bool screen_poll_touch(int *x,int *y)
     if(CONFIG_CLOCK_TOUCH_SWAP_XY){int tmp=xx;xx=yy;yy=tmp;}
     if(CONFIG_CLOCK_TOUCH_MIRROR_X)xx=W-1-xx;
     if(CONFIG_CLOCK_TOUCH_MIRROR_Y)yy=H-1-yy;
-    if(xx<0||xx>=W||yy<0||yy>=H)return false;
+    /* Compensate for capacitive active area falling short of LCD edges.
+       Exaggerate offsets from center and saturate at screen boundaries;
+       this retains central precision and keeps existing orientation. */
+    xx=W/2+(xx-W/2)*CONFIG_CLOCK_TOUCH_EDGE_GAIN/100;
+    yy=H/2+(yy-H/2)*CONFIG_CLOCK_TOUCH_EDGE_GAIN/100;
+    if(xx<0)xx=0;
+    if(xx>=W)xx=W-1;
+    if(yy<0)yy=0;
+    if(yy>=H)yy=H-1;
     const int64_t now=esp_timer_get_time();
     int dx=xx-last_x,dy=yy-last_y;
     if(last_x>=0 && dx*dx+dy*dy<1600 && now-last_trigger_us<350000)
