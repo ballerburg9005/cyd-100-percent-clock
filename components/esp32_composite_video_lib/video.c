@@ -120,6 +120,17 @@ static lldesc_t DRAM_ATTR dma_buffers[2] = {0};
 static int volatile g_current_scan_line = 0;
 static volatile uint32_t g_video_dma_eof_count = 0;
 uint32_t video_dma_eof_count(void) { return g_video_dma_eof_count; }
+void video_dma_log_stall_state(void)
+{
+    ESP_LOGE(TAG, "I2S0 DMA status: raw=0x%08lx tx_start=%u out_link=0x%08lx dscr_en=%u auto_wrback=%u owner=[%u,%u]",
+             (unsigned long)I2S0.int_raw.val,
+             (unsigned)I2S0.conf.tx_start,
+             (unsigned long)I2S0.out_link.val,
+             (unsigned)I2S0.fifo_conf.dscr_en,
+             (unsigned)I2S0.lc_conf.out_auto_wrback,
+             (unsigned)dma_buffers[0].owner,
+             (unsigned)dma_buffers[1].owner);
+}
 EventGroupHandle_t g_video_event_group=NULL;
 
 DRAM_ATTR volatile VIDEO_SIGNAL_PARAMS g_video_signal;
