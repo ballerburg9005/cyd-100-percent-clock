@@ -17,6 +17,7 @@ typedef struct {
     uint8_t brightness, theme;
     uint16_t alarm_bp; /* 0..9999 = percent hundredths of a local day */
     uint16_t timer_bp; /* 1..999 = hundredths of a day, up to 9.99% */
+    uint32_t timer_duration_ms; /* exact 300000ms default, not rounded 0.35% */
     bool use_ntp;
     int timer_seconds_left;
     char ssid[33], password[65], email[65], xmpp[65], portal_password[16], portal_ssid[33];
