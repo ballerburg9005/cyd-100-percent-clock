@@ -1163,7 +1163,12 @@ void app_main(void)
         /* Fully tear down I80 before the external video driver takes I2S0.
          * Never render LCD stripes while GPIO25 is the composite DAC. */
         if(tv_pending && !tv_video_active()){
-            screen_draw(&ui); /* leave LCD displaying STOP or BMP/FILE VIEW */
+            /* Draw a visible STOP target before freezing the LCD, even if
+             * the decoder worker has not acknowledged PLAY yet. */
+            bool was_playing=ui.audio_playing;
+            if(!tv_bmp)ui.audio_playing=true;
+            screen_draw(&ui);
+            ui.audio_playing=was_playing;
             screen_suspend_for_composite();
             if(!tv_video_start(tv_filename,tv_bmp)){
                 tv_pending=false;
