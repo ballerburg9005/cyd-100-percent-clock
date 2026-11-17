@@ -370,15 +370,16 @@ static void edit_time(const ui_state_t *s)
     int vals[]={s->year%100,s->month,s->day,s->hour,s->minute,s->second};
     char b[8];
     for(int i=0;i<6;++i){
-        int row=i/3,col=i%3,x=12+col*102,y=89+row*58;
-        /* Even 12px margins and identical spacing in both rows. */
+        /* Three 94px cells inset 20px from each edge, like the keyboard.
+         * Even the far-right + button leaves a 23px bezel margin. */
+        int row=i/3,col=i%3,x=20+col*94,y=89+row*58;
         text(x+5,y,labels[i],1,muted);
         snprintf(b,sizeof b,"%02d",vals[i]);
         text(x+5,y+17,b,2,ink);
-        button(x+49,y+17,24,28,"-",false);
-        button(x+76,y+17,24,28,"+",false);
+        button(x+41,y+17,22,28,"-",false);
+        button(x+67,y+17,22,28,"+",false);
     }
-    button(12,201,194,36,"SAVE TIME",true);
+    button(20,201,188,36,"SAVE TIME",true);
 }
 static void wifi_page(const ui_state_t *s)
 {
