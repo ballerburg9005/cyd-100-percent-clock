@@ -693,6 +693,8 @@ static void tv_request(const char *name,bool bmp)
     tv_bmp=bmp;
     tv_pending=true;
     tv_started_us=esp_timer_get_time();
+    ESP_LOGW(TAG,"Composite requested for TF file: %s, BMP=%d",
+             tv_filename,(int)tv_bmp);
 }
 #endif
 static void touch(int x,int y)
@@ -944,9 +946,12 @@ static void touch(int x,int y)
                     tv_pending=false;
 #endif
                 }else{
+                    ESP_LOGI(TAG,"TF audio PLAY: %s",ui.file_name);
                     audio_play_key(key,false);
 #if CONFIG_CLOCK_COMPOSITE_TF_TEST
                     tv_request(ui.file_name,false);
+#else
+                    ESP_LOGW(TAG,"No composite: CONFIG_CLOCK_COMPOSITE_TF_TEST is disabled");
 #endif
                 }
             }else if(x<212){
@@ -991,6 +996,11 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(e);
     load();set_tz();
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+    ESP_LOGW(TAG,"COMPOSITE ENABLED: GPIO25 video starts at TF FILES > MP3/WAV/RTTTL > PLAY");
+#else
+    ESP_LOGW(TAG,"COMPOSITE DISABLED in this build: TF audio works, GPIO25 TV output will NOT start");
+#endif
     i2c_init();
     rtc_load();
     ESP_ERROR_CHECK(screen_init());
@@ -1169,6 +1179,7 @@ void app_main(void)
             if(!tv_bmp)ui.audio_playing=true;
             screen_draw(&ui);
             ui.audio_playing=was_playing;
+            ESP_LOGW(TAG,"Releasing LCD and starting GPIO25 composite now");
             screen_suspend_for_composite();
             if(!tv_video_start(tv_filename,tv_bmp)){
                 tv_pending=false;
