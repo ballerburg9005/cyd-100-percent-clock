@@ -324,7 +324,7 @@ static void timer_page(const ui_state_t *s)
     int sec=s->timer_running?s->timer_seconds_left:
             (int)((s->timer_duration_ms+500u)/1000u);
     if(sec<0)sec=0;
-    int bp=s->timer_running?(int)((int64_t)sec*10000/86400):s->timer_bp;
+    int bp=s->timer_running?(int)(((int64_t)sec*10000+43200)/86400):s->timer_bp;
     char value[20],note[40];
     fmt_duration(value,sizeof value,bp);
     huge_center(51,value,accent);
