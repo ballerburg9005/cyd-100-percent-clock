@@ -27,8 +27,8 @@ typedef struct {
     bool use_ntp;
     int timer_seconds_left;
     char ssid[33], password[65], email[65], xmpp[65], sms[65], portal_password[16], portal_ssid[33];
-    char file_name[80], file_preview[240]; bool sd_ready; int file_index;
-    char alarm_sound[80],timer_sound[80];  /* NVS: builtin:n or sd:filename */
+    char file_name[128], file_preview[240]; bool sd_ready; int file_index;
+    char alarm_sound[132],timer_sound[132];  /* NVS: builtin:n or sd:filename */
     uint8_t contact_tune,sound_target; /* 0=not picking, 1=alarm, 2=timer */
     bool audio_playing;
     bool editing_password, keyboard_lower, keyboard_error;
