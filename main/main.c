@@ -52,6 +52,7 @@ static int last_alarm_date=-1;
 static int64_t last_touch_us;
 static int sound_hz;
 static void enable_portal(void);
+static void disable_portal(void);
 
 static uint8_t bcd(uint8_t x) { return (x>>4)*10+(x&15); }
 static uint8_t binbcd(int x) { return (uint8_t)(((x/10)<<4)|(x%10)); }
