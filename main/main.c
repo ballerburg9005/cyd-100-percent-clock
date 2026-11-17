@@ -50,6 +50,7 @@ static volatile bool wifi_scan_done;
 static bool wifi_scan_active;
 static int64_t timer_deadline;
 static int64_t ring_deadline;
+static int64_t ring_started_us;
 static int last_alarm_date=-1;
 static bool alarm_adjust_dirty;
 static int64_t last_alarm_adjust_us;
@@ -545,6 +546,8 @@ static void silence(void)
 {
     ui.alarm_ringing=false;
     ui.timer_ringing=false;
+    ui.alert_flash=false;
+    ring_started_us=0;
     sound(0);
 }
 static void start_keyboard(bool password)
@@ -702,18 +705,18 @@ static void touch(int x,int y)
         }
         if(ui.use_ntp)return;
         /* Match the rendered bottom-left save and precisely spaced +/- keys. */
-        if(y>=201&&y<238 && x>=12&&x<206){
+        if(y>=201&&y<238 && x>=20&&x<208){
             set_manual_time();
             return;
         }
         int row=-1;
         if(y>=106&&y<134)row=0;
         if(y>=164&&y<192)row=1;
-        if(row>=0 && x>=12 && x<318){
-            int col=(x-12)/102,localx=(x-12)%102;
+        if(row>=0 && x>=20 && x<302){
+            int col=(x-20)/94,localx=(x-20)%94;
             if(col>=0&&col<3){
-                if(localx>=49&&localx<73)adjust_time_field(col,row,-1);
-                else if(localx>=76&&localx<100)adjust_time_field(col,row,1);
+                if(localx>=41&&localx<63)adjust_time_field(col,row,-1);
+                else if(localx>=67&&localx<89)adjust_time_field(col,row,1);
             }
         }
     }else if(ui.page==UI_WIFI){
@@ -903,6 +906,7 @@ void app_main(void)
             int64_t diff=timer_deadline-now_us;
             ui.timer_seconds_left=diff>0?(int)((diff+999999)/1000000):0;
             if(diff<=0){ui.timer_running=false;ui.timer_ringing=true;
+                ring_started_us=now_us;
                 ring_deadline=now_us+60000000LL;draw=true;}
         }
         if(ui.time_valid){
@@ -917,6 +921,7 @@ void app_main(void)
                 if(crossing||midnight){
                     ui.alarm_ringing=true;
                     last_alarm_date=today;
+                    ring_started_us=now_us;
                     ring_deadline=now_us+60000000LL;
                     draw=true;
                 }
@@ -930,6 +935,15 @@ void app_main(void)
         last_timer_sec=ui.timer_seconds_left;
         if((ui.alarm_ringing||ui.timer_ringing)&&now_us>ring_deadline){
             silence();draw=true;
+        }
+        /* Brief software color inversion about once per second. Always return
+         * to the normal palette between pulses, and after a tap or timeout. */
+        bool alert_active=ui.alarm_ringing||ui.timer_ringing;
+        bool pulse=alert_active && ring_started_us>0 &&
+                   ((now_us-ring_started_us)%1100000LL)<300000LL;
+        if(ui.alert_flash!=pulse){
+            ui.alert_flash=pulse;
+            draw=true;
         }
         /* Three-note, relatively quiet alert instead of a 2.2kHz radio beep. */
         int hz=0;
@@ -956,7 +970,9 @@ void app_main(void)
         ui.wifi_connected=wifi_connected;
         int target_brightness=ui.brightness;
         /* Keep the portal credentials legible throughout setup. */
-        if(!ui.portal_enabled && now_us-last_touch_us>40000000LL){
+        /* An alarm must be visible even if idle dimming had engaged. */
+        if(!ui.portal_enabled && !alert_active &&
+           now_us-last_touch_us>40000000LL){
             target_brightness=(target_brightness*(ui.theme==3?12:25))/100;
             if(target_brightness<3)target_brightness=3;
         }
