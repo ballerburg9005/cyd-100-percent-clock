@@ -657,7 +657,7 @@ static void touch(int x,int y)
             else ui.page=UI_LOOK;
         }else if(y>=188&&y<239)open_files();
     }else if(ui.page==UI_CONTACT){
-        if(y>=199 && x>=203){
+        if(x>=12 && x<154 && y>=204 && y<238){
             media_refresh();
             ui.sd_ready=media_is_mounted();
             media_photo();
