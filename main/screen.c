@@ -322,7 +322,7 @@ static void timer_page(const ui_state_t *s)
     header("TIMER");
     text(11,52,"PERCENT OF DAY",1,muted);
     int sec=s->timer_running?s->timer_seconds_left:
-            ((int64_t)s->timer_bp*86400+5000)/10000;
+            (int)((s->timer_duration_ms+500u)/1000u);
     if(sec<0)sec=0;
     int bp=s->timer_running?(int)((int64_t)sec*10000/86400):s->timer_bp;
     char value[20],note[40];
