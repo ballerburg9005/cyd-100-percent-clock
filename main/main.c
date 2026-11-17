@@ -288,6 +288,26 @@ static void start_ntp_radio(void)
     ESP_LOGI(TAG,"Wi-Fi session: saved SSID length=%u, previous first-sync failures=%u",
              (unsigned)strlen(ui.ssid),(unsigned)initial_sync_failures);
 }
+static void request_ntp_sync_now(void)
+{
+    /* NTP enabled with saved credentials must reconnect immediately,
+     * even if the previous attempt timed out or Wi-Fi was stopped.
+     * A held portal/scan suspends the attempt until it closes. */
+    ui.ntp_synced=false;
+    ui.wifi_disconnect_reason=0;
+    initial_sync_failures=0;
+    ntp_updated=false;
+    next_ntp_sync_us=0;
+    if(!ui.use_ntp || !ui.ssid[0])return;
+    if(ui.portal_enabled || wifi_scan_active){
+        ESP_LOGI(TAG,"NTP requested; waiting for portal/scan to finish");
+        return;
+    }
+    if(wifi_started)stop_wifi_radio();
+    ESP_LOGI(TAG,"NTP requested immediately using saved SSID (length=%u)",
+             (unsigned)strlen(ui.ssid));
+    start_ntp_radio();
+}
 static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data)
 {
     (void)arg;
@@ -329,6 +349,8 @@ static void start_wifi(void)
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event,NULL,NULL));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     if(ui.ssid[0]){
+        ESP_LOGI(TAG,"Boot Wi-Fi: SSID present, NTP %s",
+                 ui.use_ntp?"enabled (sync now)":"disabled");
         wifi_config_t sta={0};
         strncpy((char *)sta.sta.ssid,ui.ssid,sizeof sta.sta.ssid-1);
         /* A 64-character WPA2 key may fill the entire buffer (raw PSK). */
@@ -362,7 +384,7 @@ static void apply_wifi_credentials(void)
     ntp_updated=false;
     next_ntp_sync_us=0;
     initial_sync_failures=0;
-    if(ui.use_ntp && ui.ssid[0])start_ntp_radio();
+    if(ui.use_ntp && ui.ssid[0])request_ntp_sync_now();
 }
 static void reboot_task(void *arg)
 {
@@ -596,7 +618,7 @@ static void end_wifi_scan(void)
     wifi_scan_done=false;
     ui.wifi_scanning=false;
     stop_wifi_radio();
-    next_ntp_sync_us=esp_timer_get_time()+NTP_INTERVAL_US;
+    next_ntp_sync_us=ui.use_ntp?0:esp_timer_get_time()+NTP_INTERVAL_US;
 }
 static void begin_wifi_scan(void)
 {
@@ -763,12 +785,19 @@ static void touch(int x,int y)
     }else if(ui.page==UI_SET_TIME){
         if(y>=50&&y<83 && x<=220){
             ui.use_ntp=!ui.use_ntp;
-            if(ui.use_ntp)next_ntp_sync_us=0;
-            else if(!ui.portal_enabled)stop_wifi_radio();
+            if(ui.use_ntp)request_ntp_sync_now();
+            else if(!ui.portal_enabled){
+                stop_wifi_radio();
+                ui.ntp_synced=false;
+            }
             store();
             return;
         }
-        if(ui.use_ntp)return;
+        if(ui.use_ntp){
+            if(y>=183 && y<226 && x>=83 && x<237)
+                request_ntp_sync_now();
+            return;
+        }
         /* Match the rendered bottom-left save and precisely spaced +/- keys. */
         if(y>=201&&y<238 && x>=20&&x<208){
             set_manual_time();
