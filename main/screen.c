@@ -500,7 +500,7 @@ static void look_page(const ui_state_t *s)
 static void files_page(const ui_state_t *s)
 {
     header("TF FILES");
-    button(143,4,107,35,"RESCAN",false);
+    button(141,4,104,35,"RESCAN",false);
     if(!s->sd_ready){
         center(84,"NO TF CARD MOUNTED",2,muted);
         center(116,media_sd_status(),1,ink);
