@@ -107,9 +107,12 @@ change. The display never prematurely rolls over to 100.00%.
   the same lowercase 8-character password. Use only on a trusted local device.
 - **Contact:** XMPP JID and email configured through the Wi-Fi portal.
   Place `face.bmp` (uncompressed Windows 24-bit RGB or common 32-bit BGRA BMP)
-  in the microSD root. The photo is decoded at 128×128 and displayed at
-  **140×140** (44% of the 320px screen width), without a gray border.
-  Image red/blue channels are corrected for the board's BGR display order.
+  in the microSD root. The photo is cropped proportionally (not
+  stretched) to a portrait 4:5 thumbnail at 128×160 and displayed at
+  **140×175** (44% of the 320px screen width), without a gray border.
+  A 4:5 portrait source, e.g. 560×700, avoids any cropping. Square photos
+  are center-cropped to avoid distorting faces. Image red/blue channels
+  are corrected for the board's BGR display order.
   When a card is inserted while CONTACT is open, the firmware retries loading
   automatically every ~3 seconds; use **RELOAD** at bottom right if replacing
   the card or image. A short status distinguishes mount failures from
