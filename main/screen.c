@@ -324,7 +324,6 @@ static void menu(void)
 static void alarm_page(const ui_state_t *s)
 {
     header("ALARM");
-    text(11,52,"DAILY ALARM IN DECIMAL TIME",1,muted);
     char value[20],note[40];
     fmt_day(value,sizeof value,s->alarm_bp);
     huge_center(60,value,accent,LARGE_ALARM_H,58);
@@ -459,22 +458,48 @@ static void keyboard_page(const ui_state_t *s)
     button(117,214,86,25,s->keyboard_lower?"LOWER":"UPPER",false);
     button(214,214,84,25,"SAVE",true);
 }
+/* The photo starts at x=168. Contact text may continue over it instead
+ * of truncating an email address at 24 characters. Add a thin black outline
+ * to photo-overlapping text when at least four glyphs extend over the photo. */
+static void contact_value(const char *value,int y)
+{
+    const char *v=value[0]?value:"NOT CONFIGURED";
+    size_t n=strlen(v);
+    char chunk[52];
+    size_t left=n<26?n:26; /* 26 glyphs × 6px = 156px from x=12 */
+    memcpy(chunk,v,left);
+    chunk[left]=0;
+    text(12,y,chunk,1,ink);
+    if(n>26){
+        size_t over=n-26;
+        size_t take=over<25?over:25; /* Remaining width to right edge */
+        memcpy(chunk,v+26,take);
+        chunk[take]=0;
+        if(over>3){
+            /* Black 1px border around the glyphs, retaining visible photo. */
+            for(int dy=-1;dy<=1;++dy)
+                for(int dx=-1;dx<=1;++dx)
+                    if(dx||dy)text(168+dx,y+dy,chunk,1,0x0000);
+            text(168,y,chunk,1,0xFFFF);
+        }else text(168,y,chunk,1,ink);
+        /* Maximum address field is 64 chars; wrap any remainder into
+         * the unused 11px line gap rather than clipping at right bezel. */
+        if(n>51)text(12,y+11,v+51,1,ink);
+    }
+}
 static void contact_page(const ui_state_t *s)
 {
     header("CONTACT");
+    /* Right margin 12px, bottom margin 10px. Draw image FIRST, so longer
+     * contact fields remain visible when they pass across its left edge. */
+    if(media_has_bitmap())image_preview(168,50,140,180);
     text(12,54,"100% CLOCK MADE BY",1,muted);
     text(12,80,"XMPP",2,accent);
-    char tmp[65];
-    snprintf(tmp,sizeof tmp,"%.24s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
-    text(12,103,tmp,1,ink);
+    contact_value(s->xmpp,103);
     text(12,128,"EMAIL",2,accent);
-    snprintf(tmp,sizeof tmp,"%.24s",s->email[0]?s->email:"NOT CONFIGURED");
-    text(12,151,tmp,1,ink);
+    contact_value(s->email,151);
     text(12,176,"SMS",2,accent);
-    snprintf(tmp,sizeof tmp,"%.24s",s->sms[0]?s->sms:"NOT CONFIGURED");
-    text(12,199,tmp,1,ink);
-    /* Right margin 12px; deliberate 10px lower margin and no frame. */
-    if(media_has_bitmap())image_preview(168,50,140,180);
+    contact_value(s->sms,199);
 }
 static void look_page(const ui_state_t *s)
 {
