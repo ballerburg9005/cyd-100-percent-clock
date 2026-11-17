@@ -43,7 +43,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "math.h"
 #include <esp_log.h>
 #include <string.h>
-#include <freertos/event_groups.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 static const char* TAG = "VIDEO";
 
@@ -135,7 +136,10 @@ void video_dma_log_stall_state(void)
              (unsigned)I2S0.int_raw.out_eof,
              (void *)I2S0.out_eof_des_addr);
 }
-EventGroupHandle_t g_video_event_group=NULL;
+/* ISR-updated monotonic counters replace non-ISR-safe FreeRTOS event groups.
+ * The application currently renders asynchronously and does not wait for a frame. */
+static volatile uint32_t g_video_visible_frame_seq = 0;
+static volatile uint32_t g_video_frame_seq = 0;
 
 DRAM_ATTR volatile VIDEO_SIGNAL_PARAMS g_video_signal;
 
@@ -463,13 +467,6 @@ void video_stop(void)
         g_video_signal.frame_buffer=NULL;
     }
 
-    if( g_video_event_group )
-    {
-        ESP_LOGD(TAG, "Delete event group");
-        vEventGroupDelete(g_video_event_group);
-        g_video_event_group = NULL;
-    }
-
     ESP_LOGI(TAG, "Video generation stopped.");
 
     g_video_initialized = false;
@@ -496,19 +493,9 @@ void video_init(uint16_t width, uint16_t height, FRAME_BUFFER_FORMAT fb_format, 
         video_stop();
     }
 
-    if( NULL == g_video_event_group )
-    {
-        g_video_event_group = xEventGroupCreate();
-
-
-        if( NULL == g_video_event_group )
-        {   
-            ESP_LOGE(TAG,"Failed to create event group");
-
-            assert(false);
-            return;
-        }
-    }
+    g_current_scan_line = 0;
+    g_video_visible_frame_seq = 0;
+    g_video_frame_seq = 0;
 
     DAC_FREQUENCY freq;
     switch(mode)
@@ -865,10 +852,7 @@ static inline IRAM_ATTR void pal_render_scan_line(void)
 #if CONFIG_VIDEO_TRIGGER_MODE_FIELD
         DIAG_PIN_HI();
 #endif
-        xEventGroupClearBits( g_video_event_group,
-            COMPOSITE_EVENT_FRAME_END_BIT |
-            COMPOSITE_EVENT_FRAME_VISIBLE_END_BIT
-        );
+        /* Do not call FreeRTOS event-group APIs in a video ISR. */
     }
 
     g_current_scan_line++;
@@ -906,7 +890,7 @@ static inline IRAM_ATTR void pal_render_scan_line(void)
         if( g_current_scan_line == g_video_signal.offset_y_lines+g_video_signal.height_pixels && even_frame )
         {
             // All visible lines passed
-            xEventGroupSetBits(g_video_event_group, COMPOSITE_EVENT_FRAME_VISIBLE_END_BIT);
+            ++g_video_visible_frame_seq;
         }
 
         signal_blank_line();
@@ -928,7 +912,7 @@ static inline IRAM_ATTR void pal_render_scan_line(void)
         g_current_scan_line=0;
         if( even_frame )
         {
-            xEventGroupSetBits(g_video_event_group, COMPOSITE_EVENT_FRAME_END_BIT);
+            ++g_video_frame_seq;
         }
     }
 }
@@ -943,10 +927,7 @@ static inline IRAM_ATTR void ntsc_render_scan_line(void)
 #if CONFIG_VIDEO_TRIGGER_MODE_FIELD
         DIAG_PIN_HI();
 #endif
-        xEventGroupClearBits( g_video_event_group,
-                              COMPOSITE_EVENT_FRAME_END_BIT |
-                                  COMPOSITE_EVENT_FRAME_VISIBLE_END_BIT
-        );
+        /* Frame synchronization uses ISR-safe sequence counters. */
     }
 
     g_current_scan_line++;
@@ -983,7 +964,7 @@ static inline IRAM_ATTR void ntsc_render_scan_line(void)
         if( g_current_scan_line == g_video_signal.offset_y_lines+g_video_signal.height_pixels && first_field )
         {
             // All visible lines passed
-            xEventGroupSetBits(g_video_event_group, COMPOSITE_EVENT_FRAME_VISIBLE_END_BIT);
+            ++g_video_visible_frame_seq;
         }
 
         signal_blank_line();
@@ -1001,7 +982,7 @@ static inline IRAM_ATTR void ntsc_render_scan_line(void)
         g_current_scan_line=0;
         if( !first_field )
         {
-            xEventGroupSetBits(g_video_event_group, COMPOSITE_EVENT_FRAME_END_BIT);
+            ++g_video_frame_seq;
         }
     }
 }
@@ -1161,15 +1142,16 @@ uint16_t video_get_height(void)
 
 void video_wait_frame(void)
 {
-    const TickType_t xTicksToWait = 1000 / portTICK_PERIOD_MS;
-
-    xEventGroupWaitBits(
-            g_video_event_group,
-            COMPOSITE_EVENT_FRAME_VISIBLE_END_BIT,
-            pdTRUE,         // clear bits (true) or not
-            pdFALSE,
-            xTicksToWait ); //max 100ms
-
+    /* Frame producer runs in an IRAM ISR. A simple sequence counter allows
+     * task-side frame waiting without calling non-ISR-safe event-group APIs
+     * or leaving queued deferred callbacks after video_stop(). */
+    const uint32_t start_seq = g_video_visible_frame_seq;
+    const TickType_t start_tick = xTaskGetTickCount();
+    while (g_video_initialized &&
+           g_video_visible_frame_seq == start_seq &&
+           xTaskGetTickCount() - start_tick < pdMS_TO_TICKS(1000)) {
+        vTaskDelay(1);
+    }
 }
 
 /**
