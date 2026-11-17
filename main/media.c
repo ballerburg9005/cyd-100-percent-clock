@@ -1,6 +1,7 @@
 /* Local microSD root browser and contact photo. Decode uncompressed
  * 24-bit BMP, and common 32-bit GIMP exports. No JPEG decoder yet. */
 #include "media.h"
+#include "audio.h"
 #include "embedded_face.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -41,7 +42,8 @@ static void scan(void)
     struct dirent *ent;
     while((ent=readdir(dir)) && file_count<MAX_FILES){
         if(ent->d_name[0]=='.')continue;
-        if(!ends(ent->d_name,".txt")&&!ends(ent->d_name,".bmp")&&!ends(ent->d_name,".mp3"))continue;
+        if(!ends(ent->d_name,".txt")&&!ends(ent->d_name,".bmp") &&
+           !audio_file_supported(ent->d_name))continue;
         snprintf(file_names[file_count++],64,"%.63s",ent->d_name);
     }
     closedir(dir);
@@ -229,8 +231,8 @@ bool media_open(char *preview,size_t len)
                         MEDIA_BMP_WIDTH,MEDIA_BMP_HEIGHT);
         return ok;
     }
-    if(ends(path,".mp3")){
-        if(len)snprintf(preview,len,"MP3 FILE\nPLAYBACK NOT AVAILABLE IN THIS BUILD");
+    if(audio_file_supported(path)){
+        if(len)snprintf(preview,len,"AUDIO FILE\nPLAY ON GPIO26 SPEAKER\nWAV PCM / MP3 / RTTTL");
         return true;
     }
     FILE *f=fopen(path,"rb");if(!f)return false;
