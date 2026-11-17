@@ -105,23 +105,29 @@ change. The display never prematurely rolls over to 100.00%.
   setup network visible; the clock temporarily disconnects from home Wi-Fi
   until the portal closes or you save. Touching PORTAL again restarts it with
   the same lowercase 8-character password. Use only on a trusted local device.
-- **Contact:** XMPP JID and email configured through the Wi-Fi portal.
-  Place `face.bmp` (uncompressed Windows 24-bit RGB or common 32-bit BGRA BMP)
-  in the microSD root. The photo is center-cropped without stretching
-  to a 128×174 portrait thumbnail and displayed at **140×190** (44% of the
-  320px screen width), filling the region from y=50 to the last display row
-  y=239 with no bottom margin or gray border. The height is exactly
-  240 - 50 = 190 px; a 140×190 source avoids cropping, and existing
-  140×178 or 140×185 BMPs also work without re-exporting. Image red/blue
-  channels are corrected for the board's BGR display order.
-  When a card is inserted while CONTACT is open, the firmware retries loading
-  automatically every ~3 seconds; use **RELOAD** at bottom right if replacing
-  the card or image. A short status distinguishes mount failures,
-  incomplete/short BMP headers, and non-BMP signatures from unsupported BMP
-  encodings. Changing a picture's pixel dimensions cannot by itself cause a
-  malformed BMP header. When replacing the file, finish copying, safely
-  eject the SD card on the computer, and press RELOAD SD after reinserting.
-  Photos stay local on SD only.
+- **Contact:** shows **100% CLOCK MADE BY**, XMPP, email and SMS
+  information, plus a **140×180-pixel borderless portrait** (right margin
+  12px, bottom margin 10px). The image is compiled into firmware at build time
+  from the repository's `face.bmp`, center-cropped without distortion to
+  a 128×165 RGB565 thumbnail. **No SD card is needed for CONTACT.**
+  The RELOAD SD button and SD status were removed from CONTACT; the separate
+  TF FILES browser still supports SD cards.
+  Build defaults come from root `contact_details.txt`, containing **public
+  fake/example information**. For your own local build, create
+  `contact_details.private.txt` in the repository root; the generator uses
+  it instead, and Git ignores that private override. Use these lines:
+  ```text
+  XMPP: example@domain.test
+  Email: example@domain.test
+  SMS: +00 123 456 789
+  ```
+  The script generates headers only under `build/`. The firmware copies new
+  defaults into NVS when the contact source changes, while later Wi-Fi portal
+  edits remain available. **Do not commit `contact_details.private.txt` or
+  upload your locally compiled firmware if it contains private information:**
+  contact values are embedded in the binary and can be extracted by someone
+  who obtains it. The tracked `contact_details.txt` stays public, and Git
+  cannot hide files that were committed previously merely via `.gitignore`.
 - **Look:** reworked muted, high-contrast palettes **SLATE**, **MOSS**,
   **PAPER** and **BLACK**. BLACK uses literal RGB565 zero as background,
   with cool-white ink and matching subdued controls. LCD colour inversion
