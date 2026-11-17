@@ -171,8 +171,12 @@ void tv_video_tick(int64_t now_us)
    if(!video_stall_reported){video_dma_log_stall_state();video_stall_reported=true;}
   }else{
    video_stall_reported=false;
-   ESP_LOGI(TV_TAG,"Composite DMA active: %lu scanlines/s (I2S EOF), total=%lu; TV sync/voltage still unverified",
-            (unsigned long)delta,(unsigned long)irq_count);
+   if(video_dac_selftest_active())
+    ESP_LOGI(TV_TAG,"DMA running (%lu scanlines/s); GPIO25 in DC voltage selftest, not outputting TV video yet",
+             (unsigned long)delta);
+   else
+    ESP_LOGI(TV_TAG,"Composite DMA active: %lu scanlines/s (I2S EOF), total=%lu; TV sync/voltage still unverified",
+             (unsigned long)delta,(unsigned long)irq_count);
   }
   previous_video_irq_count=irq_count;
   next_video_diagnostic_us=now_us+1000000LL;
