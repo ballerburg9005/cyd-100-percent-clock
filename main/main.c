@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include "screen.h"
 #include "media.h"
+#include "audio.h"
 #include "contact_defaults.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
@@ -57,7 +58,6 @@ static int last_alarm_date=-1;
 static bool alarm_adjust_dirty;
 static int64_t last_alarm_adjust_us;
 static int64_t last_touch_us;
-static int sound_hz;
 static void enable_portal(void);
 static void disable_portal(void);
 
@@ -125,6 +125,9 @@ static void store(void)
     nvs_set_str(h,"tz",tz);
     nvs_set_str(h,"email",ui.email);
     nvs_set_str(h,"xmpp",ui.xmpp);
+    nvs_set_str(h,"alarm_snd",ui.alarm_sound);
+    nvs_set_str(h,"timer_snd",ui.timer_sound);
+    nvs_set_u8(h,"contact_t",ui.contact_tune);
     nvs_set_str(h,"sms",ui.sms);
     nvs_set_u32(h,"ct_hash",CLOCK_CONTACT_HASH);
     nvs_set_u16(h,"abp",ui.alarm_bp);
@@ -146,6 +149,9 @@ static void load(void)
     ui.timer_duration_ms=300000; /* exactly 5 minutes */
     ui.alarm_bp=2917; /* ~07:00 */
     ui.use_ntp=true;
+    snprintf(ui.alarm_sound,sizeof ui.alarm_sound,"builtin:0");
+    snprintf(ui.timer_sound,sizeof ui.timer_sound,"builtin:0");
+    ui.contact_tune=1;
     /* The built-in defaults exist even if NVS has never been initialized.
      * The private override is selected at LOCAL build time, not at runtime. */
     snprintf(ui.xmpp,sizeof ui.xmpp,"%s",CLOCK_CONTACT_XMPP);
@@ -160,6 +166,9 @@ static void load(void)
     n=sizeof(ui.email);nvs_get_str(h,"email",ui.email,&n);
     n=sizeof(ui.xmpp);nvs_get_str(h,"xmpp",ui.xmpp,&n);
     n=sizeof(ui.sms);nvs_get_str(h,"sms",ui.sms,&n);
+    n=sizeof(ui.alarm_sound);nvs_get_str(h,"alarm_snd",ui.alarm_sound,&n);
+    n=sizeof(ui.timer_sound);nvs_get_str(h,"timer_snd",ui.timer_sound,&n);
+    nvs_get_u8(h,"contact_t",&ui.contact_tune);
     uint32_t previous_contact_hash=0;
     nvs_get_u32(h,"ct_hash",&previous_contact_hash);
     if(nvs_get_u16(h,"abp",&ui.alarm_bp)!=ESP_OK){
@@ -198,6 +207,11 @@ static void load(void)
             nvs_close(contacts);
         }
     }
+    if(ui.contact_tune>=AUDIO_BUILTIN_COUNT)ui.contact_tune=1;
+    if(strncmp(ui.alarm_sound,"builtin:",8) && strncmp(ui.alarm_sound,"sd:",3))
+        snprintf(ui.alarm_sound,sizeof ui.alarm_sound,"builtin:0");
+    if(strncmp(ui.timer_sound,"builtin:",8) && strncmp(ui.timer_sound,"sd:",3))
+        snprintf(ui.timer_sound,sizeof ui.timer_sound,"builtin:0");
     if(ui.brightness<3||ui.brightness>100)ui.brightness=45;
     ui.theme%=4;
     if(ui.alarm_bp>9999)ui.alarm_bp=2917;
@@ -209,23 +223,6 @@ static void set_tz(void)
 {
     setenv("TZ",tz,1);
     tzset();
-}
-static void sound(int hz)
-{
-    if(hz==sound_hz)return;
-    sound_hz=hz;
-    if(hz>0)ledc_set_freq(LEDC_LOW_SPEED_MODE,LEDC_TIMER_1,hz);
-    ledc_set_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_1,hz>0?130:0);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_1);
-}
-static void speaker_init(void)
-{
-    const ledc_timer_config_t t={.speed_mode=LEDC_LOW_SPEED_MODE,.timer_num=LEDC_TIMER_1,
-          .duty_resolution=LEDC_TIMER_10_BIT,.freq_hz=2200,.clk_cfg=LEDC_AUTO_CLK};
-    ESP_ERROR_CHECK(ledc_timer_config(&t));
-    const ledc_channel_config_t ch={.gpio_num=26,.speed_mode=LEDC_LOW_SPEED_MODE,
-          .channel=LEDC_CHANNEL_1,.intr_type=LEDC_INTR_DISABLE,.timer_sel=LEDC_TIMER_1,.duty=0,.hpoint=0};
-    ESP_ERROR_CHECK(ledc_channel_config(&ch));
 }
 static void i2c_init(void)
 {
@@ -579,7 +576,7 @@ static void silence(void)
     ui.timer_ringing=false;
     ui.alert_flash=false;
     ring_started_us=0;
-    sound(0);
+    audio_stop();
 }
 static void start_keyboard(bool password)
 {
@@ -664,6 +661,7 @@ static void touch(int x,int y)
     if(ui.page==UI_HOME){ui.page=UI_MENU;return;}
     /* SD media is removable: let the user re-mount without rebooting. */
     if(ui.page==UI_FILES && y<44 && x>=139 && x<246){
+        audio_stop();
         media_refresh();
         open_files();
         return;
@@ -672,8 +670,14 @@ static void touch(int x,int y)
         if(ui.page==UI_MENU)ui.page=UI_HOME;
         else if(ui.page==UI_WIFI_SCAN){end_wifi_scan();ui.page=UI_WIFI;}
         else if(ui.page==UI_KEYBOARD)ui.page=UI_WIFI;
-        else if(ui.page==UI_FILE_VIEW)ui.page=UI_FILES;
-        else ui.page=UI_MENU;
+        else if(ui.page==UI_FILE_VIEW){audio_stop();ui.page=UI_FILES;}
+        else if(ui.page==UI_FILES && ui.sound_target)ui.page=UI_SOUND_PICK;
+        else if(ui.page==UI_SOUND_PICK){
+            audio_stop();
+            ui.page=ui.sound_target==2?UI_TIMER:UI_ALARM;
+            ui.sound_target=0;
+        }
+        else {if(ui.page==UI_CONTACT)audio_stop();ui.page=UI_MENU;}
         return;
     }
     if(ui.page==UI_MENU){
@@ -686,8 +690,28 @@ static void touch(int x,int y)
             if(col==0)ui.page=UI_WIFI;
             else if(col==1){ui.page=UI_CONTACT;media_photo();}
             else ui.page=UI_LOOK;
-        }else if(y>=188&&y<239)open_files();
+        }else if(y>=188&&y<239){ui.sound_target=0;open_files();}
+    }else if(ui.page==UI_CONTACT){
+        if(y>=215 && x<160){
+            if(x<80){
+                if(audio_playing())audio_stop();
+                else {
+                    char key[20];audio_builtin_key(ui.contact_tune,key,sizeof key);
+                    audio_play_key(key,true);
+                }
+            }else{
+                audio_stop();
+                ui.contact_tune=(ui.contact_tune+1)%AUDIO_BUILTIN_COUNT;
+                store();
+                char key[20];audio_builtin_key(ui.contact_tune,key,sizeof key);
+                audio_play_key(key,true);
+            }
+        }
     }else if(ui.page==UI_ALARM){
+        if(y<44 && x>=139 && x<248){
+            ui.sound_target=1;ui.page=UI_SOUND_PICK;
+            return;
+        }
         if(y>=180&&y<207){
             int col=x<80?0:x<160?1:x<240?2:3;
             int step=col==0?-100:col==1?-1:col==2?1:100;
@@ -705,6 +729,10 @@ static void touch(int x,int y)
             alarm_adjust_dirty=false;
         }
     }else if(ui.page==UI_TIMER){
+        if(y<44 && x>=139 && x<248){
+            ui.sound_target=2;ui.page=UI_SOUND_PICK;
+            return;
+        }
         if(y>=180&&y<207){
             int col=x<80?0:x<160?1:x<240?2:3;
             int step=col==0?-10:col==1?-1:col==2?1:10;
@@ -830,6 +858,41 @@ static void touch(int x,int y)
             if(v>100)v=100;
             ui.brightness=(uint8_t)v;store();
         }
+    }else if(ui.page==UI_SOUND_PICK){
+        if(y>=50 && y<198){
+            int id=(y-50)/38;
+            if(id>=0 && id<AUDIO_BUILTIN_COUNT && (y-50)%38<34){
+                char key[20];audio_builtin_key(id,key,sizeof key);
+                if(ui.sound_target==2)
+                    snprintf(ui.timer_sound,sizeof ui.timer_sound,"%s",key);
+                else snprintf(ui.alarm_sound,sizeof ui.alarm_sound,"%s",key);
+                store();
+                audio_play_key(key,false); /* preview selected melody */
+            }
+        }else if(y>=205){
+            if(x<160){audio_stop();open_files();}
+            else {
+                audio_stop();
+                ui.page=ui.sound_target==2?UI_TIMER:UI_ALARM;
+                ui.sound_target=0;
+            }
+        }
+    }else if(ui.page==UI_FILE_VIEW){
+        if(audio_file_supported(ui.file_name) && y>=170 && y<215){
+            char key[AUDIO_KEY_MAX];audio_sd_key(ui.file_name,key,sizeof key);
+            if(x<108){
+                if(audio_playing())audio_stop();
+                else audio_play_key(key,false);
+            }else if(x<212){
+                audio_stop();
+                snprintf(ui.alarm_sound,sizeof ui.alarm_sound,"%s",key);
+                store();ui.sound_target=0;ui.page=UI_ALARM;
+            }else{
+                audio_stop();
+                snprintf(ui.timer_sound,sizeof ui.timer_sound,"%s",key);
+                store();ui.sound_target=0;ui.page=UI_TIMER;
+            }
+        }
     }else if(ui.page==UI_FILES){
         if(y>=166&&y<213){
             if(x<106)media_select(-1,ui.file_name,sizeof ui.file_name);
@@ -839,6 +902,7 @@ static void touch(int x,int y)
                 ui.page=UI_FILE_VIEW;
             }
         }else if(!ui.sd_ready && y>=70){
+            audio_stop();
             media_refresh();
             open_files();
         }
@@ -855,12 +919,13 @@ void app_main(void)
     i2c_init();
     rtc_load();
     ESP_ERROR_CHECK(screen_init());
-    speaker_init();
+    audio_init();
     start_wifi();
     last_touch_us=esp_timer_get_time();
     int last_day_bp=-1,previous_bp=-1,previous_day=-1;
     int last_timer_sec=-1;
     int last_brightness=-1;
+    bool last_audio_state=false;
     int64_t touch_feedback_deadline=0;
     bool last_connected=false,last_portal=false,last_ntp_synced=false;
     bool last_connecting=false,last_scanning=false;
@@ -947,7 +1012,8 @@ void app_main(void)
             ui.timer_seconds_left=diff>0?(int)((diff+999999)/1000000):0;
             if(diff<=0){ui.timer_running=false;ui.timer_ringing=true;
                 ring_started_us=now_us;
-                ring_deadline=now_us+ALERT_DURATION_US;draw=true;}
+                ring_deadline=now_us+ALERT_DURATION_US;
+                audio_play_key(ui.timer_sound,true);draw=true;}
         }
         if(ui.time_valid){
             int today=ui.local.tm_year*400+ui.local.tm_yday;
@@ -963,6 +1029,7 @@ void app_main(void)
                     last_alarm_date=today;
                     ring_started_us=now_us;
                     ring_deadline=now_us+ALERT_DURATION_US;
+                    audio_play_key(ui.alarm_sound,true);
                     draw=true;
                 }
             }
@@ -985,15 +1052,12 @@ void app_main(void)
             ui.alert_flash=pulse;
             draw=true;
         }
-        /* Three-note, relatively quiet alert instead of a 2.2kHz radio beep. */
-        int hz=0;
-        if(ui.alarm_ringing||ui.timer_ringing){
-            int note=(int)((now_us/185000)%16);
-            if(note==0)hz=523;
-            else if(note==1)hz=659;
-            else if(note==2||note==3)hz=784;
+        bool audio_state=audio_playing();
+        ui.audio_playing=audio_state;
+        if(audio_state!=last_audio_state){
+            last_audio_state=audio_state;
+            if(ui.page==UI_CONTACT || ui.page==UI_FILE_VIEW)draw=true;
         }
-        sound(hz);
         if(last_connected!=wifi_connected || last_portal!=ui.portal_enabled ||
            last_ntp_synced!=ui.ntp_synced ||
            last_connecting!=ui.wifi_connecting ||
