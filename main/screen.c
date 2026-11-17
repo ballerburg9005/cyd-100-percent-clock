@@ -386,6 +386,7 @@ static void keyboard_page(const ui_state_t *s)
     snprintf(counter,sizeof counter,"%u/%u",(unsigned)len,
                  s->editing_password?64u:32u);
     text(259,4,counter,1,accent);
+    if(s->keyboard_error)text(111,4,"INVALID WIFI KEY",1,accent);
     char preview[48]={0};
     snprintf(preview,sizeof preview,"%.46s",
              s->keyboard_value+(len>46?len-46:0));
