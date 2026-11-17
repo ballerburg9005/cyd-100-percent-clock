@@ -125,43 +125,75 @@ static intr_handle_t i2s_interrupt_handle;
 static lldesc_t DRAM_ATTR dma_buffers[VIDEO_DMA_BUFFER_COUNT] = {0};
 static int volatile g_current_scan_line = 0;
 static volatile uint32_t g_video_dma_eof_count = 0;
-/* Nonblocking GPIO25 analog diagnostics: the touch UI remains responsive.
- * The test is armed on the first composite preview after each reboot. */
+/* Nonblocking board-level GPIO25 output test. GPIO25 is shared with the
+ * ST7789 I80 D5 input; the LCD driver has already been suspended, and
+ * LCD CS/WR are parked high. Test the *digital* pad first, then the analog
+ * DAC mux, so a permanent ~3V reading has an unambiguous diagnosis. */
 static bool g_gpio25_dac_selftest_done = false;
 static bool g_gpio25_dac_selftest_active = false;
 static int g_gpio25_dac_selftest_phase = -2;
 static int64_t g_gpio25_dac_selftest_started_us;
 bool video_dac_selftest_active(void) { return g_gpio25_dac_selftest_active; }
+
+static void gpio25_selftest_digital_mode(void)
+{
+    dac_ll_digi_enable_dma(false);
+    dac_ll_power_down(DAC_CHAN_0);
+    ESP_ERROR_CHECK(rtc_gpio_deinit(GPIO_NUM_25));
+    ESP_ERROR_CHECK(gpio_reset_pin(GPIO_NUM_25));
+    ESP_ERROR_CHECK(gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT));
+}
+static void gpio25_selftest_analog_mode(void)
+{
+    /* Clear any stale LCD/digital GPIO mux drive before selecting RTC DAC. */
+    ESP_ERROR_CHECK(gpio_reset_pin(GPIO_NUM_25));
+    ESP_ERROR_CHECK(rtc_gpio_init(GPIO_NUM_25));
+    ESP_ERROR_CHECK(rtc_gpio_set_direction(GPIO_NUM_25, RTC_GPIO_MODE_DISABLED));
+    ESP_ERROR_CHECK(rtc_gpio_pullup_dis(GPIO_NUM_25));
+    ESP_ERROR_CHECK(rtc_gpio_pulldown_dis(GPIO_NUM_25));
+    dac_ll_power_on(DAC_CHAN_0);
+    dac_ll_rtc_sync_by_adc(false);
+    dac_ll_digi_enable_dma(false);
+}
 void video_dac_selftest_tick(int64_t now_us)
 {
     if (!g_gpio25_dac_selftest_active) return;
-    /* Five seconds to put the probe down after pressing the touchscreen,
-     * followed by fifteen seconds at each voltage level. */
+    /* Five seconds hands-free setup, then five stages lasting 15s each. */
     if (g_gpio25_dac_selftest_phase == -2) {
         g_gpio25_dac_selftest_started_us = now_us;
         dac_ll_digi_enable_dma(false);
         dac_ll_update_output_value(DAC_CHAN_0, 128);
         g_gpio25_dac_selftest_phase = -1;
-        ESP_LOGW(TAG, "GPIO25 DAC SELFTEST: 5-second preparation delay; probe GPIO25 and GND. Video intentionally suspended.");
+        ESP_LOGW(TAG, "GPIO25 PIN SELFTEST: 5 seconds to position probe; 15 seconds per stage; TV DISCONNECTED");
         return;
     }
     const int64_t elapsed = now_us - g_gpio25_dac_selftest_started_us;
     const int phase = elapsed < 5000000LL ? -1 :
                       elapsed < 20000000LL ? 0 :
                       elapsed < 35000000LL ? 1 :
-                      elapsed < 50000000LL ? 2 : 3;
+                      elapsed < 50000000LL ? 2 :
+                      elapsed < 65000000LL ? 3 :
+                      elapsed < 80000000LL ? 4 : 5;
     if (phase == g_gpio25_dac_selftest_phase) return;
     g_gpio25_dac_selftest_phase = phase;
-    if (phase == 3) {
+    if (phase == 0) {
+        gpio25_selftest_digital_mode();
+        ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_25, 0));
+        ESP_LOGW(TAG, "GPIO25 TEST 1/5: DIGITAL LOW, expect ~0 V for 15 seconds");
+    } else if (phase == 1) {
+        ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_25, 1));
+        ESP_LOGW(TAG, "GPIO25 TEST 2/5: DIGITAL HIGH, expect ~3.3 V for 15 seconds");
+    } else if (phase == 5) {
         dac_ll_digi_enable_dma(true);
         g_gpio25_dac_selftest_active = false;
-        ESP_LOGW(TAG, "GPIO25 DAC SELFTEST complete; continuous composite DAC output resumed");
-        return;
+        ESP_LOGW(TAG, "GPIO25 PIN SELFTEST complete; resumed video DMA-to-DAC output");
+    } else {
+        static const uint8_t levels[] = {0, 128, 255};
+        if (phase == 2) gpio25_selftest_analog_mode();
+        dac_ll_update_output_value(DAC_CHAN_0, levels[phase-2]);
+        ESP_LOGW(TAG, "GPIO25 TEST %d/5: ANALOG DAC value=%u, expect ~%.2f V unloaded for 15 seconds",
+                 phase+1, (unsigned)levels[phase-2], (double)levels[phase-2]*3.3/255.0);
     }
-    static const uint8_t levels[] = {0, 128, 255};
-    dac_ll_update_output_value(DAC_CHAN_0, levels[phase]);
-    ESP_LOGW(TAG, "GPIO25 DAC SELFTEST %d/3: hold value=%u (~%.2f V unloaded) for 15 seconds",
-             phase + 1, (unsigned)levels[phase], (double)levels[phase] * 3.3 / 255.0);
 }
 uint32_t video_dma_eof_count(void) { return g_video_dma_eof_count; }
 void video_dma_log_stall_state(void)
@@ -448,6 +480,8 @@ static void setup_video_dac(void)
 
     /* GPIO25 is DAC_CHAN_0 in modern IDF; GPIO26/DAC_CHAN_1 belongs
      * to the MP3 audio player and must remain powered and untouched. */
+    /* The previous I80 LCD owner may leave GPIO25's digital latch/mux set. */
+    ESP_ERROR_CHECK(gpio_reset_pin(GPIO_NUM_25));
     ESP_ERROR_CHECK(rtc_gpio_init(GPIO_NUM_25));
     ESP_ERROR_CHECK(rtc_gpio_set_direction(GPIO_NUM_25, RTC_GPIO_MODE_DISABLED));
     ESP_ERROR_CHECK(rtc_gpio_pullup_dis(GPIO_NUM_25));
@@ -509,6 +543,9 @@ void video_stop(void)
     dac_ll_digi_enable_dma(false);
     dac_ll_power_down(DAC_CHAN_0);
     ESP_ERROR_CHECK(rtc_gpio_deinit(GPIO_NUM_25));
+    /* Relinquish GPIO25 regardless of whether STOP interrupted a digital
+     * or analog self-test stage. lcd_bus_up() will configure I80 D5. */
+    ESP_ERROR_CHECK(gpio_reset_pin(GPIO_NUM_25));
     
     // free DMA buffers 
     const size_t DMA_BUFFER_COUNT = sizeof(dma_buffers)/sizeof(lldesc_t);
