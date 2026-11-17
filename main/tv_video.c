@@ -7,6 +7,7 @@
 #include "tv_video.h"
 #include "media.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "sdkconfig.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -53,6 +54,8 @@ static bool live, bitmap_mode;
 static uint32_t *pixels;
 static uint32_t frame_counter;
 static int last_anim_tick;
+static int64_t next_video_diagnostic_us;
+static uint32_t previous_video_irq_count;
 static inline void dot(int x,int y,bool white)
 {
  if(x<0||x>=TV_WIDTH||y<0||y>=TV_HEIGHT)return;
@@ -142,8 +145,11 @@ bool tv_video_start(const char *filename,bool bmp)
  pixels=(uint32_t*)video_get_frame_buffer_address();
  if(!pixels){ESP_LOGE(TV_TAG,"No composite framebuffer");video_stop();return false;}
  live=true;frame_counter=0;last_anim_tick=-1;
+ next_video_diagnostic_us=esp_timer_get_time()+1000000LL;
+ previous_video_irq_count=0;
  tv_frame(filename?filename:"");
- ESP_LOGW(TV_TAG,"Composite active on GPIO25; I80 LCD frozen, GPIO26 audio unchanged");
+ ESP_LOGW(TV_TAG,"Composite initialized on GPIO25; checking I2S DMA activity next. LCD frozen.");
+ ESP_LOGW(TV_TAG,"GPIO26 DAC audio may be overridden by global digital-DAC selection");
  return true;
 #else
  (void)filename;(void)bmp;return false;
@@ -152,7 +158,20 @@ bool tv_video_start(const char *filename,bool bmp)
 void tv_video_tick(int64_t now_us)
 {
 #if CONFIG_CLOCK_COMPOSITE_TF_TEST
- if(!live || bitmap_mode)return;
+ if(!live)return;
+ if(now_us>=next_video_diagnostic_us){
+  uint32_t irq_count=video_dma_eof_count();
+  uint32_t delta=irq_count-previous_video_irq_count;
+  if(delta==0){
+   ESP_LOGE(TV_TAG,"COMPOSITE DMA STALLED: 0 I2S0 EOF interrupts during last second; no video scanlines");
+  }else{
+   ESP_LOGI(TV_TAG,"Composite DMA active: %lu scanlines/s (I2S EOF), total=%lu; TV sync/voltage still unverified",
+            (unsigned long)delta,(unsigned long)irq_count);
+  }
+  previous_video_irq_count=irq_count;
+  next_video_diagnostic_us=now_us+1000000LL;
+ }
+ if(bitmap_mode)return;
  int tick=(int)(now_us/160000LL);
  if(tick==last_anim_tick)return;
  last_anim_tick=tick;
