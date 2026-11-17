@@ -10,6 +10,7 @@
 #include "screen.h"
 #include "media.h"
 #include "audio.h"
+#include "tv_video.h"
 #include "contact_defaults.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
@@ -682,6 +683,18 @@ static void save_audio_selection(char *dst,size_t capacity,const char *key)
     memcpy(dst,key,n);
     dst[n]=0;
 }
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+static bool tv_pending, tv_bmp;
+static int64_t tv_started_us;
+static char tv_filename[128];
+static void tv_request(const char *name,bool bmp)
+{
+    snprintf(tv_filename,sizeof tv_filename,"%s",name?name:"");
+    tv_bmp=bmp;
+    tv_pending=true;
+    tv_started_us=esp_timer_get_time();
+}
+#endif
 static void touch(int x,int y)
 {
 #ifdef CONFIG_CLOCK_TOUCH_DEBUG
@@ -701,7 +714,13 @@ static void touch(int x,int y)
         if(ui.page==UI_MENU)ui.page=UI_HOME;
         else if(ui.page==UI_WIFI_SCAN){end_wifi_scan();ui.page=UI_WIFI;}
         else if(ui.page==UI_KEYBOARD)ui.page=UI_WIFI;
-        else if(ui.page==UI_FILE_VIEW){audio_stop();ui.page=UI_FILES;}
+        else if(ui.page==UI_FILE_VIEW){
+            audio_stop();
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+            tv_pending=false;
+#endif
+            ui.page=UI_FILES;
+        }
         else if(ui.page==UI_FILES && ui.sound_target)ui.page=UI_SOUND_PICK;
         else if(ui.page==UI_SOUND_PICK){
             audio_stop();
@@ -919,14 +938,29 @@ static void touch(int x,int y)
         if(audio_file_supported(ui.file_name) && y>=170 && y<215){
             char key[AUDIO_KEY_MAX];audio_sd_key(ui.file_name,key,sizeof key);
             if(x<108){
-                if(audio_playing())audio_stop();
-                else audio_play_key(key,false);
+                if(audio_playing()){
+                    audio_stop();
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+                    tv_pending=false;
+#endif
+                }else{
+                    audio_play_key(key,false);
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+                    tv_request(ui.file_name,false);
+#endif
+                }
             }else if(x<212){
                 audio_stop();
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+                tv_pending=false;
+#endif
                 save_audio_selection(ui.alarm_sound,sizeof ui.alarm_sound,key);
                 store();ui.sound_target=0;ui.page=UI_ALARM;
             }else{
                 audio_stop();
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+                tv_pending=false;
+#endif
                 save_audio_selection(ui.timer_sound,sizeof ui.timer_sound,key);
                 store();ui.sound_target=0;ui.page=UI_TIMER;
             }
@@ -938,6 +972,9 @@ static void touch(int x,int y)
             else if(ui.file_name[0]){
                 media_open(ui.file_preview,sizeof ui.file_preview);
                 ui.page=UI_FILE_VIEW;
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+                if(media_has_bitmap())tv_request(ui.file_name,true);
+#endif
             }
         }else if(!ui.sd_ready && y>=70){
             audio_stop();
@@ -1122,6 +1159,28 @@ void app_main(void)
             screen_set_brightness((uint8_t)target_brightness);
             last_brightness=target_brightness;
         }
+#if CONFIG_CLOCK_COMPOSITE_TF_TEST
+        /* Fully tear down I80 before the external video driver takes I2S0.
+         * Never render LCD stripes while GPIO25 is the composite DAC. */
+        if(tv_pending && !tv_video_active()){
+            screen_draw(&ui); /* leave LCD displaying STOP or BMP/FILE VIEW */
+            screen_suspend_for_composite();
+            if(!tv_video_start(tv_filename,tv_bmp)){
+                tv_pending=false;
+                screen_resume_from_composite();
+                screen_draw(&ui);
+            }
+            draw=false;
+        }
+        if(tv_video_active() && !tv_bmp && !audio_state &&
+           now_us-tv_started_us>3000000LL)tv_pending=false;
+        if(!tv_pending && tv_video_active()){
+            tv_video_stop(); /* relinquish I2S0 + GPIO25 BEFORE LCD restart */
+            screen_resume_from_composite();
+            draw=true;
+        }
+        if(tv_video_active())tv_video_tick(now_us);
+#endif
         if(draw)screen_draw(&ui);
         vTaskDelay(pdMS_TO_TICKS(40));
     }
