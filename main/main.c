@@ -32,6 +32,7 @@
 #define NTP_INTERVAL_US (300LL*1000000LL)
 #define NTP_WINDOW_US (35000000LL)
 #define WIFI_RETRY_US (5000000LL)
+#define NTP_FIRST_RETRY_US (20000000LL)
 static const char *TAG = "one_hundred";
 static ui_state_t ui;
 static char tz[85]="CET-1CEST,M3.5.0,M10.5.0/3";
@@ -41,6 +42,7 @@ static bool wifi_started;
 static httpd_handle_t web_server;
 static int64_t portal_deadline;
 static int64_t next_ntp_sync_us;
+static uint8_t initial_sync_failures;
 static int64_t wifi_session_started_us;
 static volatile int64_t wifi_retry_after_us;
 static volatile bool ntp_updated;
@@ -247,9 +249,15 @@ static void start_ntp_radio(void)
     ui.wifi_connecting=true;
     wifi_retry_after_us=0;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    wifi_started=true;
+    wifi_started=true; /* Event callback can run as soon as start succeeds. */
+    esp_err_t start_result=esp_wifi_start();
+    if(start_result!=ESP_OK){
+        wifi_started=false;
+        ESP_ERROR_CHECK(start_result);
+    }
     wifi_session_started_us=esp_timer_get_time();
+    ESP_LOGI(TAG,"Wi-Fi session: saved SSID length=%u, previous first-sync failures=%u",
+             (unsigned)strlen(ui.ssid),(unsigned)initial_sync_failures);
 }
 static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data)
 {
@@ -324,6 +332,7 @@ static void apply_wifi_credentials(void)
     ui.ntp_synced=false;
     ntp_updated=false;
     next_ntp_sync_us=0;
+    initial_sync_failures=0;
     if(ui.use_ntp && ui.ssid[0])start_ntp_radio();
 }
 static void reboot_task(void *arg)
@@ -846,6 +855,7 @@ void app_main(void)
             }else if(ntp_updated){
                 ntp_updated=false;
                 ui.ntp_synced=true;
+                initial_sync_failures=0;
                 time_t synced_epoch=time(NULL);
                 rtc_save(synced_epoch);
                 stop_wifi_radio();
@@ -853,9 +863,16 @@ void app_main(void)
                 draw=true;
             }else if(wifi_session_started_us &&
                      now_us-wifi_session_started_us>=NTP_WINDOW_US){
-                ESP_LOGW(TAG,"NTP Wi-Fi window timed out after 35s");
+                ESP_LOGW(TAG,"NTP Wi-Fi window timed out after 35s (Wi-Fi reason=%u)",
+                         (unsigned)ui.wifi_disconnect_reason);
                 stop_wifi_radio();
-                next_ntp_sync_us=now_us+NTP_INTERVAL_US;
+                /* A saved network may need a second try after boot. Retry
+                 * twice promptly, then back off to the five-minute interval
+                 * instead of wasting battery indefinitely. */
+                if(initial_sync_failures<3)++initial_sync_failures;
+                next_ntp_sync_us=now_us+
+                    (!ui.ntp_synced && initial_sync_failures<3 ?
+                     NTP_FIRST_RETRY_US:NTP_INTERVAL_US);
                 draw=true;
             }else if(!wifi_started && now_us>=next_ntp_sync_us){
                 start_ntp_radio();
