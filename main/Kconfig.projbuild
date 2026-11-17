@@ -1,4 +1,13 @@
 menu "100 Percent Clock board adjustments"
+    config CLOCK_COMPOSITE_TF_TEST
+        bool "EXPERIMENT: composite TV preview on GPIO25 during TF audio/BMP"
+        default y
+        help
+            Testing only on ESP32-2432S022C: fully release LCD I2S0 and
+            parallel GPIO25 before starting PAL/NTSC DAC video on GPIO25.
+            The LCD retains a frozen image while TV output is active.
+            Press STOP or BACK (touch still works) to restore LCD.
+            Requires an external composite input; keep GND common.
     config CLOCK_LCD_ROTATE_CW
         bool "Use S022C clockwise landscape mapping for LCD and touch"
         default y
