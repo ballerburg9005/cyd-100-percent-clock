@@ -279,11 +279,7 @@ static void home(const ui_state_t *s)
     if(s->time_valid){
         fmt_day(label,sizeof label,day_bp(&s->local));
         huge_center(40,label,accent);
-        char weekday[16];
-        strftime(weekday,sizeof weekday,"%A",&s->local);
-        snprintf(label,sizeof label,"%04d-%02d-%02d %02d:%02d %s",
-                 s->local.tm_year+1900,s->local.tm_mon+1,s->local.tm_mday,
-                 s->local.tm_hour,s->local.tm_min,weekday);
+        strftime(label,sizeof label,"%Y-%m-%d %H:%M %A",&s->local);
         center(188,label,2,ink);
         rounded(10,225,300,11,4,card);
         int filled=day_bp(&s->local)*300/10000;
