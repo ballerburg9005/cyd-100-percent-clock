@@ -1,2 +1,6 @@
+# Composite experiment only: upstream is GPL-3.0-or-later.
+# Pin upstream Git commit, since version 1.1.0 exists only in staging registry.
 dependencies:
-  aquaticus/esp32_composite_video_lib: "==1.1.0"
+  esp32_composite_video_lib:
+    git: https://github.com/aquaticus/esp32_composite_video_lib.git
+    version: a1f5c7669aa274f148157947cdb7c94459e23777
