@@ -369,7 +369,9 @@ static void edit_time(const ui_state_t *s)
 static void wifi_page(const ui_state_t *s)
 {
     header("WIFI");
-    center(51,s->wifi_connected?"ONLINE":"NOT CONNECTED",2,s->wifi_connected?accent:muted);
+    center(51,s->portal_enabled?"SETUP AP ACTIVE":
+           (s->wifi_connected?"ONLINE":"NOT CONNECTED"),2,
+           (s->portal_enabled||s->wifi_connected)?accent:muted);
     char text_buf[55];
     snprintf(text_buf,sizeof text_buf,"SSID: %.32s",s->ssid[0]?s->ssid:"(NOT SET)");
     center(78,text_buf,1,ink);
