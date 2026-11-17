@@ -528,6 +528,17 @@ void screen_draw(const ui_state_t *s)
 {
     if(!s||!strip)return;
     palette(s->theme);
+    if(s->alert_flash){
+        /* Invert RGB565 software colors, not the ST7789 inversion mode.
+         * Every theme, including actual black, returns to its exact
+         * original palette at the end of the brief alert pulse. */
+        bg=(uint16_t)~bg;
+        card=(uint16_t)~card;
+        ink=(uint16_t)~ink;
+        accent=(uint16_t)~accent;
+        muted=(uint16_t)~muted;
+        edge=(uint16_t)~edge;
+    }
     for(top=0;top<H;top+=STRIP){
         rect(0,top,W,STRIP,bg);
         switch(s->page){
