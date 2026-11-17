@@ -16,7 +16,11 @@
 #endif
 
 #define TV_WIDTH 320
+#ifdef CONFIG_CLOCK_COMPOSITE_NTSC
+#define TV_HEIGHT 240
+#else
 #define TV_HEIGHT 256
+#endif
 #define TV_TAG "clock_tv"
 
 typedef struct {char id;uint8_t rows[7];} tv_glyph_t;
