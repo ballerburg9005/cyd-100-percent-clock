@@ -51,6 +51,8 @@ static bool wifi_scan_active;
 static int64_t timer_deadline;
 static int64_t ring_deadline;
 static int last_alarm_date=-1;
+static bool alarm_adjust_dirty;
+static int64_t last_alarm_adjust_us;
 static int64_t last_touch_us;
 static int sound_hz;
 static void enable_portal(void);
@@ -653,9 +655,14 @@ static void touch(int x,int y)
             if(v<0)v+=10000;
             if(v>=10000)v-=10000;
             ui.alarm_bp=(uint16_t)v;
-            store();
+            /* A long hold can repeat at 65 ms. Defer flash/NVS writing
+             * until release rather than writing hundreds of times. */
+            alarm_adjust_dirty=true;
+            last_alarm_adjust_us=esp_timer_get_time();
         }else if(y>=208){
-            ui.alarm_enabled=!ui.alarm_enabled;store();
+            ui.alarm_enabled=!ui.alarm_enabled;
+            store();
+            alarm_adjust_dirty=false;
         }
     }else if(ui.page==UI_TIMER){
         if(y>=180&&y<207){
@@ -833,6 +840,10 @@ void app_main(void)
         if(ui.touch_feedback && now_us>=touch_feedback_deadline){
             ui.touch_feedback=false;
             draw=true;
+        }
+        if(alarm_adjust_dirty && now_us-last_alarm_adjust_us>=450000LL){
+            store();
+            alarm_adjust_dirty=false;
         }
         if(ui.portal_enabled && now_us>portal_deadline){
             disable_portal();draw=true;
