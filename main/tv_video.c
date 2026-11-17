@@ -160,6 +160,9 @@ void tv_video_tick(int64_t now_us)
 {
 #if CONFIG_CLOCK_COMPOSITE_TF_TEST
  if(!live)return;
+ /* Run the 5s preparation + 3x15s DAC voltage test from the normal
+  * touchscreen loop, so BACK/STOP continues to work immediately. */
+ video_dac_selftest_tick(now_us);
  if(now_us>=next_video_diagnostic_us){
   uint32_t irq_count=video_dma_eof_count();
   uint32_t delta=irq_count-previous_video_irq_count;
