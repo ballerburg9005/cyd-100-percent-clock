@@ -319,6 +319,12 @@ static void setup_video_dac(void)
     // reset conf
     I2S0.conf.val = 1;
     I2S0.conf.val = 0;
+    /* The LCD bus driver previously owned I2S0; reset its DMA TX/FIFO
+     * state before reusing the peripheral for a cyclic DAC descriptor ring. */
+    I2S0.lc_conf.out_rst = 1;
+    I2S0.lc_conf.out_rst = 0;
+    I2S0.conf.tx_fifo_reset = 1;
+    I2S0.conf.tx_fifo_reset = 0;
     I2S0.conf.tx_right_first = 1;
     I2S0.conf.tx_mono = 1;
 
@@ -333,6 +339,14 @@ static void setup_video_dac(void)
     I2S0.sample_rate_conf.tx_bck_div_num = 1;
     I2S0.clkm_conf.clka_en = 1;                 // use clk_apll clock
     I2S0.fifo_conf.tx_fifo_mod = 1; // 16-bit single channel data
+    /* These settings were omitted in the ESP-IDF 5.x port. Without
+     * descriptor write-back, a two-buffer ring completes exactly two
+     * OUT_EOF interrupts and stops (observed on the actual S022C).
+     * Mirror the continuous DAC DMA setup in ESP-IDF 5.4.4
+     * components/esp_driver_dac/esp32/dac_dma.c. */
+    I2S0.fifo_conf.dscr_en = 1;
+    I2S0.lc_conf.out_auto_wrback = 1;
+    I2S0.lc_conf.out_eof_mode = 1;
 
 	const size_t DMA_BUFFER_COUNT = sizeof(dma_buffers)/sizeof(lldesc_t);
     for (size_t n=0; n<DMA_BUFFER_COUNT; n++)
@@ -348,6 +362,10 @@ static void setup_video_dac(void)
     }
     I2S0.out_link.addr = (uint32_t)&dma_buffers[0];
     ESP_LOGI(TAG, "DMA buffers configured. Buffers: %u, Size: %u bytes each", (unsigned)DMA_BUFFER_COUNT, (unsigned)dma_buffer_size_bytes);
+    ESP_LOGI(TAG, "Continuous DMA: dscr_en=%u auto_wrback=%u out_eof_mode=%u",
+             (unsigned)I2S0.fifo_conf.dscr_en,
+             (unsigned)I2S0.lc_conf.out_auto_wrback,
+             (unsigned)I2S0.lc_conf.out_eof_mode);
 
     set_dac_frequency();
 
@@ -390,8 +408,13 @@ void video_stop(void)
     ESP_ERROR_CHECK(esp_intr_disable(i2s_interrupt_handle));
     ESP_ERROR_CHECK(esp_intr_free(i2s_interrupt_handle));
 
-    // stop DAC
-    I2S0.out_link.start = 0;
+    // Stop TX and the DMA ring before releasing its descriptors.
+    I2S0.conf.tx_start = 0;
+    I2S0.out_link.stop = 1;
+    I2S0.int_ena.out_eof = 0;
+    I2S0.fifo_conf.dscr_en = 0;
+    I2S0.lc_conf.out_auto_wrback = 0;
+    I2S0.lc_conf.out_eof_mode = 0;
 
     //disable i2s DAC
     ESP_LOGD(TAG, "Disable DAC");
