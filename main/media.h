@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #define MEDIA_BMP_WIDTH 128
-#define MEDIA_BMP_HEIGHT 169 /* approx. 140:185 contact portrait aspect */
+#define MEDIA_BMP_HEIGHT 174 /* closest integer to 128 * 190 / 140 */
 bool media_mount(void);
 void media_refresh(void);  /* force a new mount and root-directory scan */
 bool media_is_mounted(void);
