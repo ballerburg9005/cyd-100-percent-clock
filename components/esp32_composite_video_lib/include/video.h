@@ -167,6 +167,8 @@ void video_stop(void);
 /* Monotonic I2S0 out_eof interrupts since the most recent video start.
  * Helps distinguish a configured DAC from an actually running DMA engine. */
 uint32_t video_dma_eof_count(void);
+/* Log hardware state if the continuous scanline generator stalls. */
+void video_dma_log_stall_state(void);
 
 #if CONFIG_VIDEO_DIAG_ENABLE_INTERRUPT_STATS
 void video_show_stats(void);
