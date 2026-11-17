@@ -175,10 +175,10 @@ static void image_preview(int x,int y,int w,int h)
     int to=top+STRIP-y;
     if(to>h)to=h;
     for(int dy=from;dy<to;dy++){
-        int sy=dy*MEDIA_BMP_SIZE/h;
+        int sy=dy*MEDIA_BMP_HEIGHT/h;
         for(int dx=0;dx<w;dx++){
-            int sx=dx*MEDIA_BMP_SIZE/w;
-            rect(x+dx,y+dy,1,1,pixels[sy*MEDIA_BMP_SIZE+sx]);
+            int sx=dx*MEDIA_BMP_WIDTH/w;
+            rect(x+dx,y+dy,1,1,pixels[sy*MEDIA_BMP_WIDTH+sx]);
         }
     }
 }
@@ -462,19 +462,28 @@ static void keyboard_page(const ui_state_t *s)
 static void contact_page(const ui_state_t *s)
 {
     header("CONTACT");
-    text(12,53,"A MESSAGE FROM THE MAKER",1,muted);
-    text(12,78,"XMPP",2,accent);
+    /* Portrait photo: 140x175 (4:5) fills the right 44% of the LCD
+     * from just beneath the header to the lower bezel, without a frame. */
+    text(12,54,"A MESSAGE FROM THE MAKER",1,muted);
+    text(12,79,"XMPP",2,accent);
     char tmp[50];
-    snprintf(tmp,sizeof tmp,"%.32s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
-    text(12,100,tmp,1,ink);
-    text(12,135,"EMAIL",2,accent);
-    snprintf(tmp,sizeof tmp,"%.32s",s->email[0]?s->email:"NOT CONFIGURED");
-    text(12,156,tmp,1,ink);
-    if(media_has_bitmap()){
-        rounded(232,76,81,81,5,card);
-        image_preview(237,81,71,71);
-    }else text(12,192,"PHOTO: FACE.BMP ON TF CARD",1,muted);
-    text(12,213,"EDIT DETAILS IN WIFI PORTAL",1,muted);
+    snprintf(tmp,sizeof tmp,"%.24s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
+    text(12,105,tmp,1,ink);
+    text(12,140,"EMAIL",2,accent);
+    snprintf(tmp,sizeof tmp,"%.24s",s->email[0]?s->email:"NOT CONFIGURED");
+    text(12,166,tmp,1,ink);
+    if(media_has_bitmap())image_preview(168,50,140,175);
+    else {
+        text(186,100,"NO PHOTO",1,muted);
+        text(186,116,"FACE.BMP",1,muted);
+    }
+    char status[25];
+    if(media_is_mounted()){
+        snprintf(status,sizeof status,"%s",
+                 media_has_bitmap()?"SD: PHOTO OK":media_photo_status());
+    }else snprintf(status,sizeof status,"%.24s",media_sd_status());
+    text(12,189,status,1,media_has_bitmap()?accent:muted);
+    button(12,204,142,33,"RELOAD SD",false);
 }
 static void look_page(const ui_state_t *s)
 {
@@ -492,15 +501,19 @@ static void look_page(const ui_state_t *s)
 static void files_page(const ui_state_t *s)
 {
     header("TF FILES");
+    button(141,4,104,35,"RESCAN",false);
     if(!s->sd_ready){
-        center(97,"NO TF CARD MOUNTED",2,muted);
-        center(141,"INSERT CARD / REOPEN",1,ink);
+        center(84,"NO TF CARD MOUNTED",2,muted);
+        center(116,media_sd_status(),1,ink);
+        center(147,"INSERT CARD / PRESS RESCAN",1,muted);
+        button(76,184,168,43,"RETRY SD",false);
         return;
     }
     char msg[60];
     snprintf(msg,sizeof msg,"FILE %d / %d",media_count()?media_index()+1:0,media_count());
-    center(54,msg,2,muted);
-    center(95,s->file_name[0]?s->file_name:"(EMPTY CARD)",1,ink);
+    center(55,msg,2,muted);
+    center(78,media_sd_status(),1,muted);
+    center(108,s->file_name[0]?s->file_name:"(NO SUPPORTED FILES)",1,ink);
     button(13,166,90,44,"PREV",false);
     button(114,166,90,44,"NEXT",false);
     button(215,166,91,44,"OPEN",true);

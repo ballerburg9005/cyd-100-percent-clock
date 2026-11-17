@@ -105,18 +105,29 @@ change. The display never prematurely rolls over to 100.00%.
   setup network visible; the clock temporarily disconnects from home Wi-Fi
   until the portal closes or you save. Touching PORTAL again restarts it with
   the same lowercase 8-character password. Use only on a trusted local device.
-- **Contact:** XMPP JID and email address configured through portal. Place a
-  **24-bit uncompressed BMP named `face.bmp`** in the microSD root to show
-  a local thumbnail. No personal picture/details are bundled in firmware.
+- **Contact:** XMPP JID and email configured through the Wi-Fi portal.
+  Place `face.bmp` (uncompressed Windows 24-bit RGB or common 32-bit BGRA BMP)
+  in the microSD root. The photo is cropped proportionally (not
+  stretched) to a portrait 4:5 thumbnail at 128×160 and displayed at
+  **140×175** (44% of the 320px screen width), without a gray border.
+  A 4:5 portrait source, e.g. 560×700, avoids any cropping. Square photos
+  are center-cropped to avoid distorting faces. Image red/blue channels
+  are corrected for the board's BGR display order.
+  When a card is inserted while CONTACT is open, the firmware retries loading
+  automatically every ~3 seconds; use **RELOAD** at bottom right if replacing
+  the card or image. A short status distinguishes mount failures from
+  an absent or unsupported `face.bmp`. Photos stay local on SD only.
 - **Look:** reworked muted, high-contrast palettes **SLATE**, **MOSS**,
   **PAPER** and **BLACK**. BLACK uses literal RGB565 zero as background,
   with cool-white ink and matching subdued controls. LCD colour inversion
   is disabled so black does not display white. The DARK button selects BLACK
   immediately, while NEXT COLOR cycles all four. Backlight dims
   after 40 seconds of idle time; the LCD stays on.
-- **Files:** optional TF/microSD root browser. Reads plain `.txt`, displays
-  uncompressed 24-bit `.bmp`, and **lists** `.mp3` filenames. MP3 playback,
-  folders, JPEG/PNG, EPUB and other binary decoders are deliberately absent.
+- **Files:** TF/microSD root browser with **RESCAN** in the top bar and
+  a visible mount status/error so hot insertion can be tested without rebooting.
+  Reads plain `.txt`, displays uncompressed 24/32-bit `.bmp`, and
+  **lists** `.mp3` filenames. MP3 playback, JPEG/PNG, EPUB, folders
+  and other binary decoders are deliberately absent.
   Inserting a card is optional: missing cards must not prevent boot.
 
 **Hardware notes:** The LCD is rotated to landscape; default touch mapping

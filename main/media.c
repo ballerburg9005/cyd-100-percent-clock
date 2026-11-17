@@ -1,7 +1,5 @@
-/* Optional microSD root-file browser. No multimedia decoders or network
- * dependencies: TXT preview and uncompressed 24-bit BMP only.
- * MP3 files can be listed, NOT played, in this low-memory build.
- */
+/* Local microSD root browser and contact photo. Decode uncompressed
+ * 24-bit BMP, and common 32-bit GIMP exports. No JPEG decoder yet. */
 #include "media.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -22,7 +20,8 @@ static int64_t retry_after_us;
 static sdmmc_card_t *card;
 static char file_names[MAX_FILES][64];
 static int file_count,selected;
-static uint16_t bitmap[MEDIA_BMP_SIZE*MEDIA_BMP_SIZE];
+static char sd_status[48]="NOT CHECKED", photo_status[48]="NOT LOADED";
+static uint16_t bitmap[MEDIA_BMP_WIDTH*MEDIA_BMP_HEIGHT];
 static uint16_t u16(const uint8_t *p) {return (uint16_t)p[0]|((uint16_t)p[1]<<8);}
 static uint32_t u32(const uint8_t *p) {return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
 static bool ends(const char *name,const char *ext)
@@ -37,7 +36,7 @@ static void scan(void)
 {
     file_count=0;selected=0;
     DIR *dir=opendir("/sd");
-    if(!dir)return;
+    if(!dir){snprintf(sd_status,sizeof sd_status,"ROOT DIRECTORY ERROR");return;}
     struct dirent *ent;
     while((ent=readdir(dir)) && file_count<MAX_FILES){
         if(ent->d_name[0]=='.')continue;
@@ -45,15 +44,16 @@ static void scan(void)
         snprintf(file_names[file_count++],64,"%.63s",ent->d_name);
     }
     closedir(dir);
+    snprintf(sd_status,sizeof sd_status,"MOUNT OK / %d FILES",file_count);
 }
 bool media_mount(void)
 {
     if(mounted)return true;
-    /* A missing TF card is normal: retry at most every 15 seconds.
-       Repeated taps must not cause a flood of SD initialization errors. */
+    /* A missing TF card is normal. Limit automatic retries to 3 seconds.
+     * CONTACT retries automatically while shown, so hot insertion works. */
     const int64_t now=esp_timer_get_time();
     if(now<retry_after_us)return false;
-    retry_after_us=now+15000000LL;
+    retry_after_us=now+3000000LL;
     if(!bus_ready){
         spi_bus_config_t bc={
             .mosi_io_num=23,.miso_io_num=19,.sclk_io_num=18,
@@ -61,6 +61,7 @@ bool media_mount(void)
         };
         esp_err_t e=spi_bus_initialize(SPI2_HOST,&bc,SDSPI_DEFAULT_DMA);
         if(e!=ESP_OK && e!=ESP_ERR_INVALID_STATE){
+            snprintf(sd_status,sizeof sd_status,"SPI: %s",esp_err_to_name(e));
             ESP_LOGW(TAG,"SD SPI bus: %s",esp_err_to_name(e));return false;
         }
         bus_ready=true;
@@ -74,6 +75,7 @@ bool media_mount(void)
     };
     esp_err_t e=esp_vfs_fat_sdspi_mount("/sd",&host,&slot,&cfg,&card);
     if(e!=ESP_OK){
+        snprintf(sd_status,sizeof sd_status,"MOUNT: %s",esp_err_to_name(e));
         ESP_LOGW(TAG,"No usable TF card: %s",esp_err_to_name(e));
         return false;
     }
@@ -83,6 +85,30 @@ bool media_mount(void)
     ESP_LOGI(TAG,"Mounted TF card, %d supported files",file_count);
     return true;
 }
+void media_refresh(void)
+{
+    /* Explicit recheck bypasses normal retry delay and re-reads FAT after
+     * replacing an already mounted card. */
+    image_ready=false;
+    snprintf(photo_status,sizeof photo_status,"NOT LOADED");
+    if(mounted){
+        esp_err_t e=esp_vfs_fat_sdcard_unmount("/sd",card);
+        if(e!=ESP_OK){
+            snprintf(sd_status,sizeof sd_status,"UNMOUNT: %s",esp_err_to_name(e));
+            ESP_LOGW(TAG,"SD refresh: %s",sd_status);
+            return;
+        }
+        mounted=false;
+        card=NULL;
+    }
+    file_count=0;
+    selected=0;
+    retry_after_us=0;
+    media_mount();
+}
+bool media_is_mounted(void){return mounted;}
+const char *media_sd_status(void){return sd_status;}
+const char *media_photo_status(void){return photo_status;}
 bool media_select(int direction,char *name,size_t len)
 {
     if(!media_mount()){if(len)name[0]=0;return false;}
@@ -98,32 +124,80 @@ bool media_select(int direction,char *name,size_t len)
 static bool bmp_read(const char *path)
 {
     image_ready=false;
-    FILE *f=fopen(path,"rb");if(!f)return false;
+    FILE *f=fopen(path,"rb");
+    if(!f){
+        snprintf(photo_status,sizeof photo_status,"FACE.BMP NOT FOUND");
+        return false;
+    }
     uint8_t h[54];
-    if(fread(h,1,54,f)!=54 || h[0]!='B'||h[1]!='M' || u32(h+30)!=0 ||
-       u16(h+28)!=24 || u32(h+18)>2048 || (int32_t)u32(h+18)<=0) {
+    if(fread(h,1,54,f)!=54 || h[0]!='B'||h[1]!='M'){
+        snprintf(photo_status,sizeof photo_status,"INVALID BMP HEADER");
         fclose(f);return false;
     }
-    int w=(int)u32(h+18),height=(int32_t)u32(h+22);
-    int abs_h=height<0?-height:height;
-    if(abs_h<=0||abs_h>2048){fclose(f);return false;}
-    uint32_t offset=u32(h+10),stride=((w*3+3)/4)*4;
+    int32_t w=(int32_t)u32(h+18),height=(int32_t)u32(h+22);
+    uint16_t bpp=u16(h+28);
+    uint32_t compression=u32(h+30),offset=u32(h+10),dib=u32(h+14);
+    int32_t abs_h=height<0?-height:height;
+    if(w<=0||w>2048||abs_h<=0||abs_h>2048||dib<40||dib>124||
+       u16(h+26)!=1 || offset<54 ||
+       !((bpp==24 && compression==0) ||
+         (bpp==32 && (compression==0 || compression==3 || compression==6)))){
+        snprintf(photo_status,sizeof photo_status,"BMP FORMAT UNSUPPORTED");
+        ESP_LOGW(TAG,"Unsupported BMP %s: %ldx%ld %u-bit compression=%lu DIB=%lu",
+                 path,(long)w,(long)height,(unsigned)bpp,
+                 (unsigned long)compression,(unsigned long)dib);
+        fclose(f);return false;
+    }
+    if(bpp==32 && compression!=0){
+        /* Standard Windows BITFIELDS/V4/V5 BGRA masks only. */
+        uint8_t m[12];
+        if(offset<66 || fseek(f,54,SEEK_SET)!=0 ||
+           fread(m,1,sizeof m,f)!=sizeof m ||
+           u32(m)!=0x00ff0000u || u32(m+4)!=0x0000ff00u ||
+           u32(m+8)!=0x000000ffu){
+            snprintf(photo_status,sizeof photo_status,"32-BIT MASK UNSUPPORTED");
+            fclose(f);return false;
+        }
+    }
+    uint32_t bytes=bpp/8;
+    uint32_t stride=(((uint32_t)w*bytes)+3u)&~3u;
     uint8_t *row=malloc(stride);
-    if(!row){fclose(f);return false;}
+    if(!row){
+        snprintf(photo_status,sizeof photo_status,"OUT OF MEMORY");
+        fclose(f);return false;
+    }
+    /* Keep the picture's real proportions: center-crop to 4:5 before
+     * resampling into our portrait thumbnail, rather than stretching a
+     * square source into a portrait face. Works for landscape BMPs too. */
+    int crop_w=w,crop_h=abs_h;
+    if((int64_t)w*MEDIA_BMP_HEIGHT>(int64_t)abs_h*MEDIA_BMP_WIDTH){
+        crop_w=(int)((int64_t)abs_h*MEDIA_BMP_WIDTH/MEDIA_BMP_HEIGHT);
+        if(crop_w<1)crop_w=1;
+    }else{
+        crop_h=(int)((int64_t)w*MEDIA_BMP_HEIGHT/MEDIA_BMP_WIDTH);
+        if(crop_h<1)crop_h=1;
+    }
+    int crop_x=(w-crop_w)/2,crop_y=(abs_h-crop_h)/2;
     bool ok=true;
-    for(int y=0;y<MEDIA_BMP_SIZE && ok;++y){
-        int sy=y*abs_h/MEDIA_BMP_SIZE;
+    for(int y=0;y<MEDIA_BMP_HEIGHT && ok;++y){
+        int sy=crop_y+(int)((int64_t)y*crop_h/MEDIA_BMP_HEIGHT);
         int disk_y=height>0?abs_h-1-sy:sy;
-        if(fseek(f,(long)(offset+disk_y*stride),SEEK_SET)!=0 ||
+        if(fseek(f,(long)(offset+(uint32_t)disk_y*stride),SEEK_SET)!=0 ||
            fread(row,1,stride,f)!=stride){ok=false;break;}
-        for(int x=0;x<MEDIA_BMP_SIZE;++x){
-            int sx=x*w/MEDIA_BMP_SIZE;
-            uint8_t b=row[sx*3],g=row[sx*3+1],r=row[sx*3+2];
-            bitmap[y*MEDIA_BMP_SIZE+x]=((r&0xf8)<<8)|((g&0xfc)<<3)|(b>>3);
+        for(int x=0;x<MEDIA_BMP_WIDTH;++x){
+            int sx=crop_x+(int)((int64_t)x*crop_w/MEDIA_BMP_WIDTH);
+            uint8_t b=row[sx*bytes],g=row[sx*bytes+1],r=row[sx*bytes+2];
+            /* The ST7789 is configured BGR. Swap R/B on this source
+             * bitmap to make reds display red, rather than blue. */
+            bitmap[y*MEDIA_BMP_WIDTH+x]=((b&0xf8)<<8)|((g&0xfc)<<3)|(r>>3);
         }
     }
     free(row);fclose(f);
     image_ready=ok;
+    snprintf(photo_status,sizeof photo_status,ok?"BMP %u-BIT OK":"BMP READ ERROR",
+             (unsigned)bpp);
+    if(ok)ESP_LOGI(TAG,"Loaded %s: %ld x %ld, %u-bit",path,
+                   (long)w,(long)abs_h,(unsigned)bpp);
     return ok;
 }
 bool media_open(char *preview,size_t len)
@@ -135,7 +209,7 @@ bool media_open(char *preview,size_t len)
     if(ends(path,".bmp")){
         bool ok=bmp_read(path);
         if(len)snprintf(preview,len,ok?"BMP IMAGE: %dx%d THUMBNAIL":"UNSUPPORTED BMP",
-                        MEDIA_BMP_SIZE,MEDIA_BMP_SIZE);
+                        MEDIA_BMP_WIDTH,MEDIA_BMP_HEIGHT);
         return ok;
     }
     if(ends(path,".mp3")){
@@ -154,7 +228,10 @@ bool media_open(char *preview,size_t len)
 }
 bool media_photo(void)
 {
-    if(!media_mount())return false;
+    if(!media_mount()){
+        snprintf(photo_status,sizeof photo_status,"SD NOT MOUNTED");
+        return false;
+    }
     /* The maker's image is explicit and local; never bundle personal photos. */
     return bmp_read("/sd/face.bmp");
 }
