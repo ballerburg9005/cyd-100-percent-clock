@@ -21,7 +21,7 @@ static sdmmc_card_t *card;
 static char file_names[MAX_FILES][64];
 static int file_count,selected;
 static char sd_status[48]="NOT CHECKED", photo_status[48]="NOT LOADED";
-static uint16_t bitmap[MEDIA_BMP_SIZE*MEDIA_BMP_SIZE];
+static uint16_t bitmap[MEDIA_BMP_WIDTH*MEDIA_BMP_HEIGHT];
 static uint16_t u16(const uint8_t *p) {return (uint16_t)p[0]|((uint16_t)p[1]<<8);}
 static uint32_t u32(const uint8_t *p) {return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
 static bool ends(const char *name,const char *ext)
@@ -166,18 +166,30 @@ static bool bmp_read(const char *path)
         snprintf(photo_status,sizeof photo_status,"OUT OF MEMORY");
         fclose(f);return false;
     }
+    /* Keep the picture's real proportions: center-crop to 4:5 before
+     * resampling into our portrait thumbnail, rather than stretching a
+     * square source into a portrait face. Works for landscape BMPs too. */
+    int crop_w=w,crop_h=abs_h;
+    if((int64_t)w*MEDIA_BMP_HEIGHT>(int64_t)abs_h*MEDIA_BMP_WIDTH){
+        crop_w=(int)((int64_t)abs_h*MEDIA_BMP_WIDTH/MEDIA_BMP_HEIGHT);
+        if(crop_w<1)crop_w=1;
+    }else{
+        crop_h=(int)((int64_t)w*MEDIA_BMP_HEIGHT/MEDIA_BMP_WIDTH);
+        if(crop_h<1)crop_h=1;
+    }
+    int crop_x=(w-crop_w)/2,crop_y=(abs_h-crop_h)/2;
     bool ok=true;
-    for(int y=0;y<MEDIA_BMP_SIZE && ok;++y){
-        int sy=y*abs_h/MEDIA_BMP_SIZE;
+    for(int y=0;y<MEDIA_BMP_HEIGHT && ok;++y){
+        int sy=crop_y+(int)((int64_t)y*crop_h/MEDIA_BMP_HEIGHT);
         int disk_y=height>0?abs_h-1-sy:sy;
         if(fseek(f,(long)(offset+(uint32_t)disk_y*stride),SEEK_SET)!=0 ||
            fread(row,1,stride,f)!=stride){ok=false;break;}
-        for(int x=0;x<MEDIA_BMP_SIZE;++x){
-            int sx=x*w/MEDIA_BMP_SIZE;
+        for(int x=0;x<MEDIA_BMP_WIDTH;++x){
+            int sx=crop_x+(int)((int64_t)x*crop_w/MEDIA_BMP_WIDTH);
             uint8_t b=row[sx*bytes],g=row[sx*bytes+1],r=row[sx*bytes+2];
             /* The ST7789 is configured BGR. Swap R/B on this source
              * bitmap to make reds display red, rather than blue. */
-            bitmap[y*MEDIA_BMP_SIZE+x]=((b&0xf8)<<8)|((g&0xfc)<<3)|(r>>3);
+            bitmap[y*MEDIA_BMP_WIDTH+x]=((b&0xf8)<<8)|((g&0xfc)<<3)|(r>>3);
         }
     }
     free(row);fclose(f);
@@ -197,7 +209,7 @@ bool media_open(char *preview,size_t len)
     if(ends(path,".bmp")){
         bool ok=bmp_read(path);
         if(len)snprintf(preview,len,ok?"BMP IMAGE: %dx%d THUMBNAIL":"UNSUPPORTED BMP",
-                        MEDIA_BMP_SIZE,MEDIA_BMP_SIZE);
+                        MEDIA_BMP_WIDTH,MEDIA_BMP_HEIGHT);
         return ok;
     }
     if(ends(path,".mp3")){
