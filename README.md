@@ -78,7 +78,8 @@ change. The display never prematurely rolls over to 100.00%.
   Both alarm and timer invert the whole display's colors for 300 ms
   approximately every 1.1 seconds while ringing, so they are noticeable even
   without a speaker. Any touchscreen tap silences the alert and restores the
-  selected color theme immediately; alerts also stop after one minute.
+  selected color theme immediately; both flashing and sound stop after
+  **0.10% of a day = 86.4 seconds** (1 min 26.4 sec).
   Idle backlight dimming is suspended during alerts.
   It uses a gentle ascending three-note tone on the onboard speaker.
 - **Kitchen timer:** `X.XX%` duration (0.01%–9.99% of one day), adjustable
@@ -111,7 +112,10 @@ change. The display never prematurely rolls over to 100.00%.
   from the repository's `face.bmp`, center-cropped without distortion to
   a 128×165 RGB565 thumbnail. **No SD card is needed for CONTACT.**
   The RELOAD SD button and SD status were removed from CONTACT; the separate
-  TF FILES browser still supports SD cards.
+  TF FILES browser still supports SD cards. XMPP, email and SMS are no
+  longer truncated to 24 characters: long values continue over the photo,
+  with a thin black text outline where more than three characters overlap.
+  Values longer than one full 320px row wrap onto the next line.
   Build defaults come from root `contact_details.txt`, containing **public
   fake/example information**. For your own local build, create
   `contact_details.private.txt` in the repository root; the generator uses
