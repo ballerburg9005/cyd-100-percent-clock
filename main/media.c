@@ -130,8 +130,25 @@ static bool bmp_read(const char *path)
         return false;
     }
     uint8_t h[54];
-    if(fread(h,1,54,f)!=54 || h[0]!='B'||h[1]!='M'){
-        snprintf(photo_status,sizeof photo_status,"INVALID BMP HEADER");
+    size_t header_bytes=fread(h,1,sizeof h,f);
+    if(header_bytes!=sizeof h){
+        /* A changed file on a still-mounted card may have stale FAT data,
+         * while an incomplete export may genuinely be shorter than 54 B.
+         * Report the failing condition rather than blaming the dimensions. */
+        if(ferror(f))
+            snprintf(photo_status,sizeof photo_status,"BMP HEADER READ ERROR");
+        else
+            snprintf(photo_status,sizeof photo_status,"BMP TOO SHORT: %u/54",
+                     (unsigned)header_bytes);
+        ESP_LOGW(TAG,"%s: header read %u/54 bytes (ferror=%d)",
+                 path,(unsigned)header_bytes,ferror(f)!=0);
+        fclose(f);return false;
+    }
+    if(h[0]!='B'||h[1]!='M'){
+        snprintf(photo_status,sizeof photo_status,"NOT BMP: %02X %02X",
+                 (unsigned)h[0],(unsigned)h[1]);
+        ESP_LOGW(TAG,"%s: not a Windows BMP (signature %02X %02X)",
+                 path,(unsigned)h[0],(unsigned)h[1]);
         fclose(f);return false;
     }
     int32_t w=(int32_t)u32(h+18),height=(int32_t)u32(h+22);
@@ -166,9 +183,9 @@ static bool bmp_read(const char *path)
         snprintf(photo_status,sizeof photo_status,"OUT OF MEMORY");
         fclose(f);return false;
     }
-    /* Keep the picture's real proportions: center-crop to 4:5 before
-     * resampling into our portrait thumbnail, rather than stretching a
-     * square source into a portrait face. Works for landscape BMPs too. */
+    /* Preserve aspect ratio: center-crop to the contact window's
+     * approximately 140:185 portrait aspect before resampling. A BMP
+     * already at this ratio is displayed without cropping. */
     int crop_w=w,crop_h=abs_h;
     if((int64_t)w*MEDIA_BMP_HEIGHT>(int64_t)abs_h*MEDIA_BMP_WIDTH){
         crop_w=(int)((int64_t)abs_h*MEDIA_BMP_WIDTH/MEDIA_BMP_HEIGHT);

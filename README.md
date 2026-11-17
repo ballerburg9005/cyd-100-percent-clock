@@ -107,16 +107,20 @@ change. The display never prematurely rolls over to 100.00%.
   the same lowercase 8-character password. Use only on a trusted local device.
 - **Contact:** XMPP JID and email configured through the Wi-Fi portal.
   Place `face.bmp` (uncompressed Windows 24-bit RGB or common 32-bit BGRA BMP)
-  in the microSD root. The photo is cropped proportionally (not
-  stretched) to a portrait 4:5 thumbnail at 128×160 and displayed at
-  **140×175** (44% of the 320px screen width), without a gray border.
-  A 4:5 portrait source, e.g. 560×700, avoids any cropping. Square photos
-  are center-cropped to avoid distorting faces. Image red/blue channels
-  are corrected for the board's BGR display order.
+  in the microSD root. The photo is center-cropped without stretching
+  to a 128×169 portrait thumbnail and displayed at **140×185** (44% of the
+  320px screen width, just 5px above the bottom edge), without a gray border.
+  An approximately 140:185 portrait source avoids cropping; the earlier
+  140×178 source also works and does not need to be resized. Image red/blue
+  channels are corrected for the board's BGR display order.
   When a card is inserted while CONTACT is open, the firmware retries loading
   automatically every ~3 seconds; use **RELOAD** at bottom right if replacing
-  the card or image. A short status distinguishes mount failures from
-  an absent or unsupported `face.bmp`. Photos stay local on SD only.
+  the card or image. A short status distinguishes mount failures,
+  incomplete/short BMP headers, and non-BMP signatures from unsupported BMP
+  encodings. Changing a picture's pixel dimensions cannot by itself cause a
+  malformed BMP header. When replacing the file, finish copying, safely
+  eject the SD card on the computer, and press RELOAD SD after reinserting.
+  Photos stay local on SD only.
 - **Look:** reworked muted, high-contrast palettes **SLATE**, **MOSS**,
   **PAPER** and **BLACK**. BLACK uses literal RGB565 zero as background,
   with cool-white ink and matching subdued controls. LCD colour inversion

@@ -462,8 +462,8 @@ static void keyboard_page(const ui_state_t *s)
 static void contact_page(const ui_state_t *s)
 {
     header("CONTACT");
-    /* Portrait photo: 140x175 (4:5) fills the right 44% of the LCD
-     * from just beneath the header to the lower bezel, without a frame. */
+    /* Portrait photo: 140x185 occupies the right 44% of the display
+     * from just under the header to a 5px lower margin, without a frame. */
     text(12,54,"A MESSAGE FROM THE MAKER",1,muted);
     text(12,79,"XMPP",2,accent);
     char tmp[50];
@@ -472,7 +472,7 @@ static void contact_page(const ui_state_t *s)
     text(12,140,"EMAIL",2,accent);
     snprintf(tmp,sizeof tmp,"%.24s",s->email[0]?s->email:"NOT CONFIGURED");
     text(12,166,tmp,1,ink);
-    if(media_has_bitmap())image_preview(168,50,140,175);
+    if(media_has_bitmap())image_preview(168,50,140,185);
     else {
         text(186,100,"NO PHOTO",1,muted);
         text(186,116,"FACE.BMP",1,muted);
