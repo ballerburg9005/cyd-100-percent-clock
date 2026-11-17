@@ -523,13 +523,14 @@ static void sound_page(const ui_state_t *s)
     header(s->sound_target==2?"TIMER SOUND":"ALARM SOUND");
     const char *selected=s->sound_target==2?s->timer_sound:s->alarm_sound;
     char key[16];
+    /* Five tracks fit without colliding with TF AUDIO/BACK at the bottom. */
     for(int i=0;i<AUDIO_BUILTIN_COUNT;++i){
         audio_builtin_key(i,key,sizeof key);
-        button(12,50+i*38,296,34,audio_builtin_name(i),
+        button(12,47+i*30,296,28,audio_builtin_name(i),
                !strcmp(selected,key));
     }
-    button(12,205,142,32,"TF AUDIO",false);
-    button(167,205,141,32,"BACK",false);
+    button(12,204,142,32,"TF AUDIO",false);
+    button(167,204,141,32,"BACK",false);
 }
 static void look_page(const ui_state_t *s)
 {
