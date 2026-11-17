@@ -847,7 +847,10 @@ static void touch(int x,int y)
         if(y>=106&&y<146){
             if(x<107)begin_wifi_scan();
             else start_keyboard(x>=208);
-        }else if(y>=156&&y<195)enable_portal();
+        }else if(y>=156&&y<195){
+            if(ui.portal_enabled)disable_portal();
+            else enable_portal();
+        }
     }else if(ui.page==UI_WIFI_SCAN){
         if(y>=51&&y<204 && !ui.wifi_scanning){
             int row=(y-51)/39;
