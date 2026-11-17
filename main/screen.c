@@ -199,7 +199,7 @@ static void header(const char *label)
 }
 /* Tall typographic digits; dot and percent need optical alignment, so they
    are rendered separately rather than using the existing raster glyphs. */
-#define LARGE_H 101
+#define LARGE_H 114
 /* Visible column bounds measured from the glyph data itself; stripping
    blank side bearings gives genuinely close-set digits instead of just
    reducing the space after an already-padded bitmap. */
@@ -207,22 +207,22 @@ static const uint8_t digit_min_x[10]={5,8,5,6,4,6,5,6,5,5};
 static const uint8_t digit_max_x[10]={42,40,40,41,43,41,42,41,42,42};
 static int large_width(char c)
 {
-    if(c=='.')return 9;
-    if(c=='%')return 17;
+    if(c=='.')return 15;
+    if(c=='%')return 26;
     int index=big_index(c);
-    return index>=0?52:8;
+    return index>=0?65:8;
 }
 static void huge(int x,int y,const char *value,uint16_t color)
 {
     int cursor=x;
     for(const char *p=value;*p;p++){
         if(*p=='.'){
-            rounded(cursor+1,y+LARGE_H-13,7,7,3,color);
+            rounded(cursor+4,y+LARGE_H-14,7,7,3,color);
             cursor+=large_width(*p);
             continue;
         }
         if(*p=='%'){
-            text(cursor+1,y+LARGE_H-31,"%",3,color);
+            text(cursor+4,y+LARGE_H-31,"%",3,color);
             cursor+=large_width(*p);
             continue;
         }
@@ -276,14 +276,13 @@ static void home(const ui_state_t *s)
     char label[48];
     if(s->time_valid){
         fmt_day(label,sizeof label,day_bp(&s->local));
-        huge_center(45,label,accent);
-        snprintf(label,sizeof label,"%02d:%02d",s->local.tm_hour,s->local.tm_min);
-        center(153,label,2,ink);
-        strftime(label,sizeof label,"%A",&s->local);
-        center(185,label,2,muted);
-        snprintf(label,sizeof label,"%04d-%02d-%02d",s->local.tm_year+1900,
-                 s->local.tm_mon+1,s->local.tm_mday);
-        center(207,label,2,muted);
+        huge_center(40,label,accent);
+        char weekday[16];
+        strftime(weekday,sizeof weekday,"%A",&s->local);
+        snprintf(label,sizeof label,"%04d-%02d-%02d %02d:%02d %s",
+                 s->local.tm_year+1900,s->local.tm_mon+1,s->local.tm_mday,
+                 s->local.tm_hour,s->local.tm_min,weekday);
+        center(188,label,2,ink);
         rounded(10,225,300,11,4,card);
         int filled=day_bp(&s->local)*300/10000;
         if(filled>0)rounded(10,225,filled,11,4,accent);
@@ -313,7 +312,7 @@ static void alarm_page(const ui_state_t *s)
     text(11,52,"DAILY ALARM IN DECIMAL TIME",1,muted);
     char value[20],note[40];
     fmt_day(value,sizeof value,s->alarm_bp);
-    huge_center(61,value,accent);
+    huge_center(59,value,accent);
     int sec=(s->alarm_bp*86400+5000)/10000;
     snprintf(note,sizeof note,"%02d:%02d LOCAL",sec/3600%24,sec/60%60);
     center(164,note,2,muted);
@@ -326,16 +325,13 @@ static void alarm_page(const ui_state_t *s)
 static void timer_page(const ui_state_t *s)
 {
     header("TIMER");
-    text(11,52,"PERCENT OF DAY",1,muted);
     int sec=s->timer_running?s->timer_seconds_left:
             (int)((s->timer_duration_ms+500u)/1000u);
     if(sec<0)sec=0;
     int bp=s->timer_running?(int)(((int64_t)sec*10000+43200)/86400):s->timer_bp;
-    char value[20],note[40];
+    char value[20];
     fmt_duration(value,sizeof value,bp);
-    huge_center(61,value,accent);
-    snprintf(note,sizeof note,"%02d:%02d REMAINING",sec/60,sec%60);
-    center(164,note,2,muted);
+    huge_center(58,value,accent);
     button(5,181,73,24,"-0.10",false);
     button(84,181,73,24,"-0.01",false);
     button(163,181,73,24,"+0.01",false);
