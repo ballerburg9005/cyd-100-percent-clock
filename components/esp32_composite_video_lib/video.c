@@ -118,6 +118,8 @@ static uint32_t g_pixel_calls_count;
 static intr_handle_t i2s_interrupt_handle;
 static lldesc_t DRAM_ATTR dma_buffers[2] = {0};
 static int volatile g_current_scan_line = 0;
+static volatile uint32_t g_video_dma_eof_count = 0;
+uint32_t video_dma_eof_count(void) { return g_video_dma_eof_count; }
 EventGroupHandle_t g_video_event_group=NULL;
 
 DRAM_ATTR volatile VIDEO_SIGNAL_PARAMS g_video_signal;
@@ -361,6 +363,7 @@ static void setup_video_dac(void)
     ESP_LOGI(TAG, "DAC1 composite DMA on GPIO25; DAC2 GPIO26 reserved for audio");
 
     // start transmission
+    g_video_dma_eof_count = 0;
     I2S0.conf.tx_start = 1;
     I2S0.int_clr.val = UINT32_MAX;
     I2S0.int_ena.out_eof = 1;
@@ -968,6 +971,7 @@ static void IRAM_ATTR i2s_interrupt(void *dma_buffer_size_bytes)
 {
 	if (I2S0.int_st.out_eof)
 	{
+        ++g_video_dma_eof_count;
 #if CONFIG_VIDEO_TRIGGER_MODE_ISR
         DIAG_PIN_HI();
 #endif
