@@ -2,6 +2,7 @@
 #include "screen.h"
 #include "big_font.h"
 #include "media.h"
+#include "audio.h"
 #include "esp_timer.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -324,6 +325,7 @@ static void menu(void)
 static void alarm_page(const ui_state_t *s)
 {
     header("ALARM");
+    button(142,5,103,34,"SOUND",false);
     char value[20],note[40];
     fmt_day(value,sizeof value,s->alarm_bp);
     huge_center(60,value,accent,LARGE_ALARM_H,58);
@@ -339,6 +341,7 @@ static void alarm_page(const ui_state_t *s)
 static void timer_page(const ui_state_t *s)
 {
     header("TIMER");
+    button(142,5,103,34,"SOUND",false);
     int sec=s->timer_running?s->timer_seconds_left:
             (int)((s->timer_duration_ms+500u)/1000u);
     if(sec<0)sec=0;
@@ -500,6 +503,22 @@ static void contact_page(const ui_state_t *s)
     contact_value(s->email,151);
     text(12,176,"SMS",2,accent);
     contact_value(s->sms,199);
+    text(12,208,audio_builtin_name(s->contact_tune),1,muted);
+    button(12,218,66,21,s->audio_playing?"STOP":"PLAY",false);
+    button(84,218,68,21,"NEXT",false);
+}
+static void sound_page(const ui_state_t *s)
+{
+    header(s->sound_target==2?"TIMER SOUND":"ALARM SOUND");
+    const char *selected=s->sound_target==2?s->timer_sound:s->alarm_sound;
+    char key[16];
+    for(int i=0;i<AUDIO_BUILTIN_COUNT;++i){
+        audio_builtin_key(i,key,sizeof key);
+        button(12,50+i*38,296,34,audio_builtin_name(i),
+               !strcmp(selected,key));
+    }
+    button(12,205,142,32,"TF AUDIO",false);
+    button(167,205,141,32,"BACK",false);
 }
 static void look_page(const ui_state_t *s)
 {
@@ -533,15 +552,24 @@ static void files_page(const ui_state_t *s)
     button(13,166,90,44,"PREV",false);
     button(114,166,90,44,"NEXT",false);
     button(215,166,91,44,"OPEN",true);
-    center(216,"TXT / BMP VIEW / MP3 NAME ONLY",1,muted);
+    center(216,"TXT / BMP / WAV / MP3 / RTTTL",1,muted);
 }
 static void file_view(const ui_state_t *s)
 {
     header("FILE VIEW");
     text(9,59,s->file_name,1,accent);
+    if(audio_file_supported(s->file_name)){
+        center(101,"TF AUDIO",2,ink);
+        center(131,"WAV / MP3 / RTTTL",1,muted);
+        button(11,174,96,39,s->audio_playing?"STOP":"PLAY",false);
+        button(112,174,96,39,"ALARM",false);
+        button(213,174,96,39,"TIMER",false);
+        center(222,"SELECT AS ALARM OR TIMER SOUND",1,muted);
+        return;
+    }
     if(media_has_bitmap()){
         image_preview(112,82,96,96);
-        center(202,"24-BIT BMP IMAGE",1,muted);
+        center(202,"BMP IMAGE",1,muted);
         return;
     }
     const char *p=s->file_preview;
@@ -584,6 +612,7 @@ void screen_draw(const ui_state_t *s)
           case UI_KEYBOARD:keyboard_page(s);break;
           case UI_FILES:files_page(s);break;
           case UI_FILE_VIEW:file_view(s);break;
+          case UI_SOUND_PICK:sound_page(s);break;
         }
         /* A short, unmistakable tap marker shows the coordinates accepted
            by the touch driver, even when no button action was matched.
