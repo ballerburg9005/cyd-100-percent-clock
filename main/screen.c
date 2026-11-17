@@ -103,6 +103,7 @@ static const font_glyph_t FONT[] = {
  {'y',{0,0,17,17,15,1,14}},
  {'z',{0,0,31,2,4,8,31}},
 };
+static bool lcd_suspended;
 static uint8_t *strip;
 static SemaphoreHandle_t finished;
 static esp_lcd_i80_bus_handle_t bus;
@@ -596,7 +597,7 @@ static void file_view(const ui_state_t *s)
 }
 void screen_draw(const ui_state_t *s)
 {
-    if(!s||!strip)return;
+    if(!s||!strip||!panel||lcd_suspended)return;
     palette(s->theme);
     if(s->alert_flash){
         /* Invert RGB565 software colors, not the ST7789 inversion mode.
@@ -649,24 +650,12 @@ void screen_set_brightness(uint8_t brightness)
     ledc_set_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0,brightness*1023/100);
     ledc_update_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0);
 }
-esp_err_t screen_init(void)
+static esp_err_t lcd_bus_up(void)
 {
-    gpio_config_t rd={.pin_bit_mask=1ULL<<2,.mode=GPIO_MODE_OUTPUT};
-    ESP_ERROR_CHECK(gpio_config(&rd));
-    gpio_set_level(GPIO_NUM_2,1);
-    const ledc_timer_config_t timer={
-        .speed_mode=LEDC_LOW_SPEED_MODE,.timer_num=LEDC_TIMER_0,
-        .duty_resolution=LEDC_TIMER_10_BIT,.freq_hz=4000,.clk_cfg=LEDC_AUTO_CLK
-    };
-    ESP_ERROR_CHECK(ledc_timer_config(&timer));
-    const ledc_channel_config_t channel={
-        .gpio_num=0,.speed_mode=LEDC_LOW_SPEED_MODE,
-        .channel=LEDC_CHANNEL_0,.intr_type=LEDC_INTR_DISABLE,
-        .timer_sel=LEDC_TIMER_0,.duty=0,.hpoint=0
-    };
-    ESP_ERROR_CHECK(ledc_channel_config(&channel));
-    finished=xSemaphoreCreateBinary();
-    if(!finished)return ESP_ERR_NO_MEM;
+    /* I2S0 must not be owned by the parallel LCD while composite DAC
+     * DMA is active. This function is called only after video_stop(). */
+    gpio_reset_pin(GPIO_NUM_4);
+    gpio_reset_pin(GPIO_NUM_17);
     const esp_lcd_i80_bus_config_t bc={
         .clk_src=LCD_CLK_SRC_DEFAULT,.dc_gpio_num=GPIO_NUM_16,
         .wr_gpio_num=GPIO_NUM_4,
@@ -697,6 +686,54 @@ esp_err_t screen_init(void)
     /* Inversion made the BLACK theme physically white on this panel. */
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel,false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel,true));
+    lcd_suspended=false;
+    return ESP_OK;
+}
+void screen_suspend_for_composite(void)
+{
+    if(lcd_suspended)return;
+    /* Only call between screen_draw() invocations; all stripes were
+     * synchronously completed before returning to the UI loop. */
+    if(panel){ESP_ERROR_CHECK(esp_lcd_panel_del(panel));panel=NULL;}
+    if(io){ESP_ERROR_CHECK(esp_lcd_panel_io_del(io));io=NULL;}
+    if(bus){ESP_ERROR_CHECK(esp_lcd_del_i80_bus(bus));bus=NULL;}
+    /* Keep ST7789 unselected and WR inactive even when the DAC changes
+     * GPIO25's mux. The LCD image remains held in display RAM. */
+    gpio_reset_pin(GPIO_NUM_17);
+    gpio_set_direction(GPIO_NUM_17,GPIO_MODE_OUTPUT);
+    gpio_set_level(GPIO_NUM_17,1);
+    gpio_reset_pin(GPIO_NUM_4);
+    gpio_set_direction(GPIO_NUM_4,GPIO_MODE_OUTPUT);
+    gpio_set_level(GPIO_NUM_4,1);
+    lcd_suspended=true;
+    ESP_LOGI("clock_screen","I80 LCD driver released for composite TV DAC");
+}
+void screen_resume_from_composite(void)
+{
+    if(!lcd_suspended)return;
+    ESP_ERROR_CHECK(lcd_bus_up());
+    ESP_LOGI("clock_screen","I80 LCD driver restored after composite TV");
+}
+
+esp_err_t screen_init(void)
+{
+    gpio_config_t rd={.pin_bit_mask=1ULL<<2,.mode=GPIO_MODE_OUTPUT};
+    ESP_ERROR_CHECK(gpio_config(&rd));
+    gpio_set_level(GPIO_NUM_2,1);
+    const ledc_timer_config_t timer={
+        .speed_mode=LEDC_LOW_SPEED_MODE,.timer_num=LEDC_TIMER_0,
+        .duty_resolution=LEDC_TIMER_10_BIT,.freq_hz=4000,.clk_cfg=LEDC_AUTO_CLK
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&timer));
+    const ledc_channel_config_t channel={
+        .gpio_num=0,.speed_mode=LEDC_LOW_SPEED_MODE,
+        .channel=LEDC_CHANNEL_0,.intr_type=LEDC_INTR_DISABLE,
+        .timer_sel=LEDC_TIMER_0,.duty=0,.hpoint=0
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&channel));
+    finished=xSemaphoreCreateBinary();
+    if(!finished)return ESP_ERR_NO_MEM;
+    ESP_ERROR_CHECK(lcd_bus_up());
     strip=heap_caps_malloc(W*STRIP*2,MALLOC_CAP_DMA|MALLOC_CAP_INTERNAL);
     if(!strip)return ESP_ERR_NO_MEM;
     big_font_init();
