@@ -476,7 +476,7 @@ static void touch(int x,int y)
             else ui.page=UI_LOOK;
         }else if(y>=188&&y<239)open_files();
     }else if(ui.page==UI_ALARM){
-        if(y>=167&&y<204){
+        if(y>=180&&y<207){
             int col=x<80?0:x<160?1:x<240?2:3;
             int step=col==0?-100:col==1?-1:col==2?1:100;
             int v=ui.alarm_bp+step;
@@ -488,7 +488,7 @@ static void touch(int x,int y)
             ui.alarm_enabled=!ui.alarm_enabled;store();
         }
     }else if(ui.page==UI_TIMER){
-        if(y>=167&&y<204){
+        if(y>=180&&y<207){
             int col=x<80?0:x<160?1:x<240?2:3;
             int step=col==0?-10:col==1?-1:col==2?1:10;
             int v=ui.timer_bp+step;
