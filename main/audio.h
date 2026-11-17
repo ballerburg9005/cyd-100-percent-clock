@@ -3,7 +3,7 @@
 #include <stddef.h>
 
 #define AUDIO_BUILTIN_COUNT 4
-#define AUDIO_KEY_MAX 80
+#define AUDIO_KEY_MAX 132
 
 /* Sound keys persisted to NVS: "builtin:0" .. "builtin:3",
  * or "sd:filename.wav/mp3/rtttl" for removable TF audio. */
