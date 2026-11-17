@@ -125,6 +125,8 @@ static intr_handle_t i2s_interrupt_handle;
 static lldesc_t DRAM_ATTR dma_buffers[VIDEO_DMA_BUFFER_COUNT] = {0};
 static int volatile g_current_scan_line = 0;
 static volatile uint32_t g_video_dma_eof_count = 0;
+/* Temporary board-level analog test: performed only on first video start. */
+static bool g_gpio25_dac_selftest_done = false;
 uint32_t video_dma_eof_count(void) { return g_video_dma_eof_count; }
 void video_dma_log_stall_state(void)
 {
@@ -416,6 +418,26 @@ static void setup_video_dac(void)
     ESP_ERROR_CHECK(rtc_gpio_pulldown_dis(GPIO_NUM_25));
     dac_ll_power_on(DAC_CHAN_0);
     dac_ll_rtc_sync_by_adc(false);
+
+    /* DEBUG: direct DAC voltage test BEFORE connecting I2S0 to the DAC.
+     * With no TV load, expect approximately 0, 1.65 and 3.3 volts on
+     * GPIO25. A stuck ~3V reading during all three steps indicates
+     * GPIO mux/routing, wiring, probe grounding or an external driver,
+     * not composite PAL sync. Only performed on the first TF preview
+     * after boot, to avoid delaying every file. */
+    if (!g_gpio25_dac_selftest_done) {
+        static const uint8_t levels[] = {0, 128, 255};
+        g_gpio25_dac_selftest_done = true;
+        dac_ll_digi_enable_dma(false);
+        for (unsigned i=0; i<sizeof(levels)/sizeof(levels[0]); ++i) {
+            dac_ll_update_output_value(DAC_CHAN_0, levels[i]);
+            ESP_LOGW(TAG, "GPIO25 DAC SELFTEST %u/3: value=%u (expect ~%.2f V unloaded); measure NOW",
+                     i+1, (unsigned)levels[i], (double)levels[i]*3.3/255.0);
+            vTaskDelay(pdMS_TO_TICKS(1800));
+        }
+        ESP_LOGW(TAG, "GPIO25 DAC SELFTEST complete; switching DAC to continuous video I2S now");
+    }
+
     dac_ll_digi_enable_dma(true);
     ESP_LOGI(TAG, "DAC1 composite DMA on GPIO25; DAC2 GPIO26 reserved for audio");
 
