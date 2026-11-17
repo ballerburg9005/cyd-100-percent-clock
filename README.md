@@ -33,7 +33,6 @@ Exit monitor with **Ctrl+]**, or **Ctrl+T**, release, then **X**. On German
 keyboards Ctrl+] can be difficult to type. Ctrl+C is **not** the normal
 monitor exit shortcut. If the terminal consumes both shortcuts, close the
 monitor from another terminal or simply use flash without monitor.
-```
 
 No Wi-Fi password is compiled into the firmware. On first boot, it starts a
 10-minute setup AP automatically. You can reopen it later via **MENU → WIFI →
@@ -63,25 +62,35 @@ change. The display never prematurely rolls over to 100.00%.
 
 ### Controls in the landscape firmware
 
-- **Clock:** large `XX.XX%` of local day; below are HH:MM, full weekday,
-  ISO date `YYYY-MM-DD` and a subtle progress line. No slogan/banner.
+- **Clock:** taller, more closely spaced `XX.XX` numerals with a smaller %
+  symbol and corrected decimal point; HH:MM, full weekday and ISO date
+  `YYYY-MM-DD` below. The day progress bar is 11 pixels tall.
 - **Alarm:** local daily time shown as `XX.XX%`; adjust by ±0.01% or ±1.00%,
   toggle on/off. 0.01% of a day is 8.64 seconds. It uses a gentle ascending
   three-note tone on the onboard speaker. Alarm resolution is 8.64 s.
-- **Kitchen timer:** `X.XX%` duration (0.01%–9.99% of 24 h), adjustable in
-  ±0.01% or ±0.10% steps. Conventional MM:SS is small below it.
+- **Kitchen timer:** `X.XX%` duration (0.01%–9.99% of one day), adjustable
+  in ±0.01% or ±0.10% steps. **RESET** restores exactly 05:00 (300 seconds),
+  shown as approximately `0.35%`. Internally the starting preset is exact,
+  not the rounded decimal amount. Small MM:SS is shown below the big percent.
   The countdown runs from monotonic microseconds.
 - **Set Time:** `[X] USE NTP` checkbox defaults ON; manual date/time controls
   are hidden while NTP is selected. Uncheck for offline time setting.
   DS3231, when fitted, backs up UTC independently of display time zone.
-- **Wi-Fi:** touchscreen keyboard with **visible plaintext password**, or
-  10-minute WPA2 setup portal `http://192.168.4.1/` after connecting to
-  the displayed AP SSID/password. Use the portal for mixed-case passwords.
+- **Wi-Fi:** touchscreen keyboard uses inset 38×25-pixel keys, a visible
+  plaintext input and character count, DELETE on the left, SHIFT in the
+  middle and SAVE on the right. Supports 8–63-character WPA2 passphrases
+  or **exactly 64 hexadecimal characters** (the WPA2 raw PSK format);
+  invalid keys are rejected without deleting the typed text. The phone/PC
+  setup portal at `http://192.168.4.1/` is much faster for long keys:
+  connect to the displayed temporary 10-minute WPA2 access point and paste
+  the full key there. Use only on a trusted local device.
 - **Contact:** XMPP JID and email address configured through portal. Place a
   **24-bit uncompressed BMP named `face.bmp`** in the microSD root to show
   a local thumbnail. No personal picture/details are bundled in firmware.
-- **Look:** four themes: Rose, Glacier, Honey, and near-black **Dark**.
-  Backlight is automatically dimmed after 40 s with no touch; LCD stays on.
+- **Look:** four themes: Rose, Glacier, Honey and **DARK** with truly black
+  background and subdued foreground colors. The DARK button selects it
+  immediately, while NEXT COLOR cycles themes. Backlight automatically dims
+  after 40 seconds with no touch; the LCD stays on.
 - **Files:** optional TF/microSD root browser. Reads plain `.txt`, displays
   uncompressed 24-bit `.bmp`, and **lists** `.mp3` filenames. MP3 playback,
   folders, JPEG/PNG, EPUB and other binary decoders are deliberately absent.
@@ -89,10 +98,14 @@ change. The display never prematurely rolls over to 100.00%.
 
 **Hardware notes:** The LCD is rotated to landscape; default touch mapping
 is native CST816S portrait (x: 0..239, y: 0..319) → landscape
-`x=319-raw_y, y=raw_x`. If taps are mirrored relative to visible buttons,
-adjust the touch mirror/swap settings in `idf.py menuconfig` under
-**100 Percent Clock board adjustments**. Touch events also accept a new
-press after 350 ms, avoiding the original missed-release lockup.
+`x=raw_y, y=239-raw_x` on the currently tested orientation. After the
+rotation/mirror mapping, a configurable **Touch edge expansion** (112% by
+default) stretches coordinates slightly away from the center and clamps
+them at the screen boundary. This is a provisional correction for the
+reported edge-shortfall, **not** a physical calibration. Change it under
+`idf.py menuconfig` → **100 Percent Clock board adjustments** or set it to
+100 to disable the correction. If taps are mirrored, use the separate
+touch mirror/swap options. The visible touch dot helps diagnose this.
 
 **Not implemented:** streaming radio, XMPP messaging, RSS/news, weather,
 audio decoding, or battery percentage. These require separate network/audio
