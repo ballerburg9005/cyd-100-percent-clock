@@ -22,8 +22,9 @@ endif()
 message(STATUS "${contact_output}")
 
 idf_component_register(
-    SRCS "main.c" "screen.c" "media.c"
+    SRCS "main.c" "screen.c" "media.c" "audio.c"
     INCLUDE_DIRS "." "${CONTACT_GENERATED_DIR}"
     REQUIRES esp_wifi esp_event esp_netif nvs_flash esp_timer
              esp_http_server esp_lcd driver lwip fatfs sdmmc esp_driver_spi esp_driver_sdspi
+             esp_driver_dac esp_driver_gptimer
 )
