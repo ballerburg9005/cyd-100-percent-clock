@@ -110,6 +110,7 @@ static void store(void)
     nvs_set_str(h,"xmpp",ui.xmpp);
     nvs_set_u16(h,"abp",ui.alarm_bp);
     nvs_set_u16(h,"tbp",ui.timer_bp);
+    nvs_set_u32(h,"timer_ms",ui.timer_duration_ms);
     nvs_set_u8(h,"ntp",ui.use_ntp);
     nvs_set_u8(h,"ae",ui.alarm_enabled);
     nvs_set_u8(h,"brightness",ui.brightness);
@@ -122,7 +123,8 @@ static void load(void)
     memset(&ui,0,sizeof ui);
     ui.page=UI_HOME;
     ui.brightness=45;
-    ui.timer_bp=35; /* ~5:02 in 24h percent */
+    ui.timer_bp=35; /* 5:00 displays as 0.35% of a day */
+    ui.timer_duration_ms=300000; /* exactly 5 minutes */
     ui.alarm_bp=2917; /* ~07:00 */
     ui.use_ntp=true;
     nvs_handle_t h;
@@ -139,6 +141,10 @@ static void load(void)
         ui.alarm_bp=(uint16_t)(((uint32_t)(h_old%24*3600+m_old%60*60)*10000)/86400);
     }
     nvs_get_u16(h,"tbp",&ui.timer_bp);
+    if(nvs_get_u32(h,"timer_ms",&ui.timer_duration_ms)!=ESP_OK){
+        /* Upgrade older presets, but preserve a five-minute first use. */
+        ui.timer_duration_ms=ui.timer_bp==35?300000:(uint32_t)ui.timer_bp*8640u;
+    }
     uint8_t ntp=1;
     nvs_get_u8(h,"ntp",&ntp);
     ui.use_ntp=ntp!=0;
@@ -150,7 +156,9 @@ static void load(void)
     if(ui.brightness<3||ui.brightness>100)ui.brightness=45;
     ui.theme%=4;
     if(ui.alarm_bp>9999)ui.alarm_bp=2917;
-    if(ui.timer_bp<1||ui.timer_bp>999)ui.timer_bp=35;
+    if(ui.timer_duration_ms<8640u || ui.timer_duration_ms>8631360u)
+        ui.timer_duration_ms=300000;
+    ui.timer_bp=(uint16_t)((ui.timer_duration_ms+4320u)/8640u);
 }
 static void set_tz(void)
 {
@@ -219,7 +227,11 @@ static void start_wifi(void)
     if(ui.ssid[0]){
         wifi_config_t sta={0};
         strncpy((char *)sta.sta.ssid,ui.ssid,sizeof sta.sta.ssid-1);
-        strncpy((char *)sta.sta.password,ui.password,sizeof sta.sta.password-1);
+        /* A 64-character WPA2 key is a raw hexadecimal PSK and fills the
+           entire ESP-IDF password array without a NUL terminator. */
+        size_t passlen=strlen(ui.password);
+        if(passlen>sizeof sta.sta.password)passlen=sizeof sta.sta.password;
+        memcpy(sta.sta.password,ui.password,passlen);
         sta.sta.threshold.authmode=WIFI_AUTH_OPEN;
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA,&sta));
@@ -268,7 +280,7 @@ static esp_err_t web_home(httpd_req_t *req)
        "</style><h2>100% Clock</h2><p>Wi-Fi, time zone and contact information.</p>"
        "<form method=post action=/save>"
        "<label>Wi-Fi SSID<input name=ssid maxlength=32></label>"
-       "<label>Wi-Fi password (visible)<input name=pass type=text maxlength=63 autocapitalize=off autocomplete=off></label>"
+       "<label>Wi-Fi password (visible)<input name=pass type=text maxlength=64 autocapitalize=off autocomplete=off></label>"
        "<label>Time zone (POSIX)<input name=tz value='CET-1CEST,M3.5.0,M10.5.0/3' maxlength=79></label>"
        "<label>XMPP JID<input name=xmpp maxlength=64 placeholder='user@example.org'></label>"
        "<label>Email address<input name=email type=email maxlength=64></label>"
@@ -425,7 +437,7 @@ static void touch(int x,int y)
     last_touch_us=esp_timer_get_time();
     if(ui.alarm_ringing||ui.timer_ringing){silence();return;}
     if(ui.page==UI_HOME){ui.page=UI_MENU;return;}
-    if(y<44 && x>=247){
+    if(y<44 && x>=247 && ui.page!=UI_KEYBOARD){
         if(ui.page==UI_MENU)ui.page=UI_HOME;
         else if(ui.page==UI_KEYBOARD)ui.page=UI_WIFI;
         else if(ui.page==UI_FILE_VIEW)ui.page=UI_FILES;
@@ -463,14 +475,23 @@ static void touch(int x,int y)
             if(v<1)v=1;
             if(v>999)v=999;
             ui.timer_bp=(uint16_t)v;
-            /* Timer adjustments apply to the next run, not an active countdown. */
+            ui.timer_duration_ms=(uint32_t)v*8640u;
             store();
         }else if(y>=208){
-            if(ui.timer_running){ui.timer_running=false;timer_deadline=0;}
-            else{
-                int64_t duration_us=(int64_t)ui.timer_bp*8640000LL;
-                timer_deadline=esp_timer_get_time()+duration_us;
-                ui.timer_seconds_left=(int)(duration_us/1000000);
+            if(x<116){
+                ui.timer_running=false;
+                timer_deadline=0;
+                ui.timer_bp=35;
+                ui.timer_duration_ms=300000;
+                ui.timer_seconds_left=300;
+                store();
+            }else if(ui.timer_running){
+                ui.timer_running=false;
+                timer_deadline=0;
+            }else{
+                timer_deadline=esp_timer_get_time()+
+                        (int64_t)ui.timer_duration_ms*1000LL;
+                ui.timer_seconds_left=(int)((ui.timer_duration_ms+999u)/1000u);
                 ui.timer_running=true;
             }
         }
@@ -501,11 +522,13 @@ static void touch(int x,int y)
         if(y>=106&&y<146)start_keyboard(x>=160);
         else if(y>=156&&y<195)enable_portal();
     }else if(ui.page==UI_KEYBOARD){
-        if(y>=82&&y<214){
-            int row=(y-82)/22,col=(x-5)/45;
+        if(y>=51 && y<213){
+            int row=(y-51)/27;
+            int col=(x-21)/40;
             int ix=row*7+col;
-            if(x>=5&&col>=0&&col<7&&ix>=0&&ix<42){
-                size_t n=strlen(ui.keyboard_value),max=ui.editing_password?63:32;
+            if(x>=21 && x<301 && col>=0 && col<7 && ix>=0 && ix<42){
+                size_t n=strlen(ui.keyboard_value);
+                size_t max=ui.editing_password?64:32;
                 if(n<max){
                     char c="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-@!?"[ix];
                     if(ui.keyboard_lower&&isalpha((unsigned char)c))
@@ -515,20 +538,27 @@ static void touch(int x,int y)
                 }
             }
         }else if(y>=214){
-            if(x<102)ui.keyboard_lower=!ui.keyboard_lower;
-            else if(x<208){size_t n=strlen(ui.keyboard_value);if(n)ui.keyboard_value[n-1]=0;}
-            else{
-                if(ui.editing_password){
+            if(x<112){
+                size_t n=strlen(ui.keyboard_value);
+                if(n)ui.keyboard_value[n-1]=0;
+            }else if(x<209){
+                ui.keyboard_lower=!ui.keyboard_lower;
+            }else{
+                if(ui.editing_password)
                     snprintf(ui.password,sizeof ui.password,"%s",ui.keyboard_value);
-                }else snprintf(ui.ssid,sizeof ui.ssid,"%.32s",ui.keyboard_value);
+                else
+                    snprintf(ui.ssid,sizeof ui.ssid,"%.32s",ui.keyboard_value);
                 store();
                 ui.page=UI_WIFI;
-                /* Wi-Fi config is loaded at start; reconfigure on reboot. */
                 xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
             }
         }
     }else if(ui.page==UI_LOOK){
-        if(y>=91&&y<137){ui.theme=(ui.theme+1)%4;store();}
+        if(y>=89&&y<136){
+            if(x>=163)ui.theme=3;
+            else ui.theme=(ui.theme+1)%4;
+            store();
+        }
         if(y>=181&&y<225){
             int v=ui.brightness+(x<160?-10:10);
             if(v<3)v=3;
