@@ -436,12 +436,8 @@ static void enable_portal(void)
     /* APSTA inherits the home router's channel and can become hard to find.
      * Setup needs no internet, so use AP-only on channel 6 until it closes. */
     ui.portal_enabled=true;
-    wifi_connected=false;
+    stop_wifi_radio();
     if(web_server){httpd_stop(web_server);web_server=NULL;}
-    if(wifi_started){
-        ESP_ERROR_CHECK(esp_wifi_stop());
-        wifi_started=false;
-    }
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP,&ap));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -465,18 +461,11 @@ static void disable_portal(void)
 {
     if(!ui.portal_enabled)return;
     if(web_server){httpd_stop(web_server);web_server=NULL;}
-    if(wifi_started){
-        ESP_ERROR_CHECK(esp_wifi_stop());
-        wifi_started=false;
-    }
+    stop_wifi_radio();
     ui.portal_enabled=false;
     ui.portal_seconds_left=0;
-    if(ui.ssid[0]){
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-        ESP_ERROR_CHECK(esp_wifi_start());
-        wifi_started=true;
-        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-    } else ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
+    if(ui.ssid[0] && ui.use_ntp)start_ntp_radio();
+    else ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
     /* Password is retained in NVS for the next setup session. */
     ui.portal_ssid[0]=0;
 }
@@ -532,6 +521,65 @@ static void start_keyboard(bool password)
     snprintf(ui.keyboard_value,sizeof ui.keyboard_value,"%s",password?ui.password:ui.ssid);
     ui.page=UI_KEYBOARD;
 }
+static void end_wifi_scan(void)
+{
+    if(wifi_scan_active && wifi_started){
+        esp_wifi_scan_stop(); /* harmless if scan already completed */
+        esp_wifi_clear_ap_list();
+    }
+    wifi_scan_active=false;
+    wifi_scan_done=false;
+    ui.wifi_scanning=false;
+    stop_wifi_radio();
+    next_ntp_sync_us=esp_timer_get_time()+NTP_INTERVAL_US;
+}
+static void begin_wifi_scan(void)
+{
+    /* Scan is opt-in; routine NTP sync does not continuously scan networks. */
+    if(ui.portal_enabled)disable_portal();
+    if(wifi_scan_active)end_wifi_scan();
+    stop_wifi_radio();
+    ui.page=UI_WIFI_SCAN;
+    ui.wifi_scan_page=0;
+    ui.wifi_scan_count=0;
+    ui.wifi_scanning=true;
+    wifi_scan_done=false;
+    wifi_scan_active=true;
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    wifi_started=true;
+    esp_err_t err=esp_wifi_scan_start(NULL,false);
+    if(err!=ESP_OK){
+        ESP_LOGW(TAG,"Wi-Fi scan start failed: %s",esp_err_to_name(err));
+        end_wifi_scan();
+    }
+}
+static void receive_wifi_scan(void)
+{
+    wifi_scan_done=false;
+    uint16_t total=0;
+    if(esp_wifi_scan_get_ap_num(&total)==ESP_OK && total){
+        uint16_t take=total>32?32:total;
+        wifi_ap_record_t *records=calloc(take,sizeof(*records));
+        if(records){
+            if(esp_wifi_scan_get_ap_records(&take,records)==ESP_OK){
+                for(uint16_t i=0;i<take && ui.wifi_scan_count<16;++i){
+                    char ssid[33]={0};
+                    memcpy(ssid,records[i].ssid,32);
+                    if(!ssid[0])continue;
+                    bool duplicate=false;
+                    for(int j=0;j<ui.wifi_scan_count;++j)
+                        if(strcmp(ssid,ui.wifi_scan_ssids[j])==0){duplicate=true;break;}
+                    if(!duplicate)
+                        snprintf(ui.wifi_scan_ssids[ui.wifi_scan_count++],33,"%s",ssid);
+                }
+            }else esp_wifi_clear_ap_list();
+            free(records);
+        }else esp_wifi_clear_ap_list();
+    }else esp_wifi_clear_ap_list();
+    /* Preserve displayed scan results while powering the radio back down. */
+    end_wifi_scan();
+}
 static void open_files(void)
 {
     ui.sd_ready=media_select(0,ui.file_name,sizeof ui.file_name);
@@ -548,6 +596,7 @@ static void touch(int x,int y)
     if(ui.page==UI_HOME){ui.page=UI_MENU;return;}
     if(y<44 && x>=247 && ui.page!=UI_KEYBOARD){
         if(ui.page==UI_MENU)ui.page=UI_HOME;
+        else if(ui.page==UI_WIFI_SCAN){end_wifi_scan();ui.page=UI_WIFI;}
         else if(ui.page==UI_KEYBOARD)ui.page=UI_WIFI;
         else if(ui.page==UI_FILE_VIEW)ui.page=UI_FILES;
         else ui.page=UI_MENU;
@@ -628,8 +677,29 @@ static void touch(int x,int y)
             }
         }
     }else if(ui.page==UI_WIFI){
-        if(y>=106&&y<146)start_keyboard(x>=160);
-        else if(y>=156&&y<195)enable_portal();
+        if(y>=106&&y<146){
+            if(x<107)begin_wifi_scan();
+            else start_keyboard(x>=208);
+        }else if(y>=156&&y<195)enable_portal();
+    }else if(ui.page==UI_WIFI_SCAN){
+        if(y>=51&&y<204 && !ui.wifi_scanning){
+            int row=(y-51)/39;
+            int index=ui.wifi_scan_page*4+row;
+            if(row>=0&&row<4 && index<ui.wifi_scan_count){
+                /* The scan returns the EXACT case-sensitive router SSID. */
+                snprintf(ui.ssid,sizeof ui.ssid,"%s",ui.wifi_scan_ssids[index]);
+                store();
+                ui.page=UI_WIFI;
+                end_wifi_scan();
+                xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
+            }
+        }else if(y>=210){
+            if(x<112)begin_wifi_scan();
+            else if(x<208){
+                if(ui.wifi_scan_page>0)--ui.wifi_scan_page;
+            }else if((ui.wifi_scan_page+1)*4<ui.wifi_scan_count)
+                ++ui.wifi_scan_page;
+        }
     }else if(ui.page==UI_KEYBOARD){
         if(y>=51 && y<213){
             int row=(y-51)/27;
