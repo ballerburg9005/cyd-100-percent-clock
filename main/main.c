@@ -34,6 +34,7 @@
 #define NTP_WINDOW_US (35000000LL)
 #define WIFI_RETRY_US (5000000LL)
 #define NTP_FIRST_RETRY_US (20000000LL)
+#define ALERT_DURATION_US (86400000LL) /* 0.10% of one day = 86.4 seconds */
 static const char *TAG = "one_hundred";
 static ui_state_t ui;
 static char tz[85]="CET-1CEST,M3.5.0,M10.5.0/3";
@@ -946,7 +947,7 @@ void app_main(void)
             ui.timer_seconds_left=diff>0?(int)((diff+999999)/1000000):0;
             if(diff<=0){ui.timer_running=false;ui.timer_ringing=true;
                 ring_started_us=now_us;
-                ring_deadline=now_us+60000000LL;draw=true;}
+                ring_deadline=now_us+ALERT_DURATION_US;draw=true;}
         }
         if(ui.time_valid){
             int today=ui.local.tm_year*400+ui.local.tm_yday;
@@ -961,7 +962,7 @@ void app_main(void)
                     ui.alarm_ringing=true;
                     last_alarm_date=today;
                     ring_started_us=now_us;
-                    ring_deadline=now_us+60000000LL;
+                    ring_deadline=now_us+ALERT_DURATION_US;
                     draw=true;
                 }
             }
@@ -972,7 +973,7 @@ void app_main(void)
         if(ui.timer_running && ui.timer_seconds_left!=last_timer_sec &&
            ui.page==UI_TIMER){draw=true;}
         last_timer_sec=ui.timer_seconds_left;
-        if((ui.alarm_ringing||ui.timer_ringing)&&now_us>ring_deadline){
+        if((ui.alarm_ringing||ui.timer_ringing)&&now_us>=ring_deadline){
             silence();draw=true;
         }
         /* Brief software color inversion about once per second. Always return
