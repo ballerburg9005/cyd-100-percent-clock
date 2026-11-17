@@ -14,6 +14,17 @@ menu "100 Percent Clock board adjustments"
     config CLOCK_TOUCH_MIRROR_Y
         bool "Mirror touch Y coordinate"
         default n
+    config CLOCK_TOUCH_EDGE_GAIN
+        int "Touch edge expansion percent (100 = none)"
+        range 100 135
+        default 112
+        help
+            Stretch touch coordinates away from the centre to compensate
+            for a touchscreen whose detected range ends before the LCD bezel.
+            This is a provisional affine correction, not a measured
+            five-point calibration. Increase only if touch dots stop short
+            of the outer edges.
+
     config CLOCK_TOUCH_DEBUG
         bool "Log touch coordinates to serial monitor"
         default n
