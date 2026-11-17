@@ -32,6 +32,9 @@
 #ifndef CONFIG_CLOCK_LCD_ROTATE_CW
 #define CONFIG_CLOCK_LCD_ROTATE_CW 0
 #endif
+#ifndef CONFIG_CLOCK_DISPLAY_FLIP_180
+#define CONFIG_CLOCK_DISPLAY_FLIP_180 0
+#endif
 #ifndef CONFIG_CLOCK_LCD_MIRROR_Y
 #define CONFIG_CLOCK_LCD_MIRROR_Y 0
 #endif
@@ -520,13 +523,14 @@ static void sound_page(const ui_state_t *s)
     header(s->sound_target==2?"TIMER SOUND":"ALARM SOUND");
     const char *selected=s->sound_target==2?s->timer_sound:s->alarm_sound;
     char key[16];
+    /* Five tracks fit without colliding with TF AUDIO/BACK at the bottom. */
     for(int i=0;i<AUDIO_BUILTIN_COUNT;++i){
         audio_builtin_key(i,key,sizeof key);
-        button(12,50+i*38,296,34,audio_builtin_name(i),
+        button(12,47+i*30,296,28,audio_builtin_name(i),
                !strcmp(selected,key));
     }
-    button(12,205,142,32,"TF AUDIO",false);
-    button(167,205,141,32,"BACK",false);
+    button(12,204,142,32,"TF AUDIO",false);
+    button(167,204,141,32,"BACK",false);
 }
 static void look_page(const ui_state_t *s)
 {
@@ -685,8 +689,11 @@ esp_err_t screen_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel,true));
+    /* Button/TF-up installation: rotate the already landscape LCD 180°.
+     * This inverts BOTH mirror flags. Touch axes are flipped below too. */
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel,
-                CONFIG_CLOCK_LCD_ROTATE_CW,CONFIG_CLOCK_LCD_MIRROR_Y));
+                CONFIG_CLOCK_LCD_ROTATE_CW ^ CONFIG_CLOCK_DISPLAY_FLIP_180,
+                CONFIG_CLOCK_LCD_MIRROR_Y ^ CONFIG_CLOCK_DISPLAY_FLIP_180));
     /* Inversion made the BLACK theme physically white on this panel. */
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel,false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel,true));
@@ -727,6 +734,11 @@ bool screen_poll_touch(int *x,int *y,ui_page_t page)
     if(CONFIG_CLOCK_TOUCH_SWAP_XY){int tmp=xx;xx=yy;yy=tmp;}
     if(CONFIG_CLOCK_TOUCH_MIRROR_X)xx=W-1-xx;
     if(CONFIG_CLOCK_TOUCH_MIRROR_Y)yy=H-1-yy;
+    /* Match the physical 180-degree LCD rotation before edge calibration. */
+    if(CONFIG_CLOCK_DISPLAY_FLIP_180){
+        xx=W-1-xx;
+        yy=H-1-yy;
+    }
     /* Compensate for capacitive active area falling short of LCD edges.
        Exaggerate offsets from center and saturate at screen boundaries;
        this retains central precision and keeps existing orientation. */

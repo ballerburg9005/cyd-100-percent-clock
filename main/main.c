@@ -897,9 +897,9 @@ static void touch(int x,int y)
             ui.brightness=(uint8_t)v;store();
         }
     }else if(ui.page==UI_SOUND_PICK){
-        if(y>=50 && y<198){
-            int id=(y-50)/38;
-            if(id>=0 && id<AUDIO_BUILTIN_COUNT && (y-50)%38<34){
+        if(y>=47 && y<197){
+            int id=(y-47)/30;
+            if(id>=0 && id<AUDIO_BUILTIN_COUNT && (y-47)%30<28){
                 char key[20];audio_builtin_key(id,key,sizeof key);
                 if(ui.sound_target==2)
                     save_audio_selection(ui.timer_sound,sizeof ui.timer_sound,key);

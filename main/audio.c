@@ -41,6 +41,13 @@ static const tone_t rush[]={
  N(247,100),N(494,100),N(370,100),N(740,100),N(494,100),N(988,100),N(370,100),N(740,200),N(0,75),
  N(262,100),N(523,100),N(392,100),N(784,100),N(523,100),N(1047,100),N(392,100),N(784,330),N(0,150)
 };
+/* An original late-1990s bedside/radio alarm: closely spaced electronic
+ * double/triple beeps in alternating pitches, not a movie soundtrack sample. */
+static const tone_t clock1999[]={
+ N(1047,165),N(0,85),N(1047,165),N(0,85),N(1047,210),N(0,430),
+ N(988,165),N(0,85),N(988,165),N(0,85),N(988,210),N(0,450),
+ N(1175,175),N(0,95),N(1047,175),N(0,95),N(880,260),N(0,700)
+};
 static const tone_t night[]={
  N(196,250),N(0,85),N(294,125),N(349,125),N(392,250),N(294,125),N(262,125),N(196,250),N(0,85),
  N(220,250),N(0,85),N(330,125),N(392,125),N(440,250),N(330,125),N(294,125),N(220,250),N(0,100),
@@ -51,7 +58,8 @@ static const tune_t tunes[AUDIO_BUILTIN_COUNT]={
  {"CLASSIC CHIME",classic,sizeof classic/sizeof *classic},
  {"PIXEL SUNRISE",sunrise,sizeof sunrise/sizeof *sunrise},
  {"8-BIT RUSH",rush,sizeof rush/sizeof *rush},
- {"NIGHT CIRCUIT",night,sizeof night/sizeof *night}
+ {"NIGHT CIRCUIT",night,sizeof night/sizeof *night},
+ {"1999 RADIO CLOCK",clock1999,sizeof clock1999/sizeof *clock1999}
 };
 typedef enum {NONE,TUNES,WAV,MP3} format_t;
 typedef struct {
@@ -75,6 +83,7 @@ typedef struct {
  mp3dec_t decoder;
  mp3d_sample_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
  int pcm_len,pcm_pos;
+ uint32_t decoded_frames;
 } source_t;
 static source_t src;
 static SemaphoreHandle_t lock;
@@ -127,9 +136,10 @@ static uint32_t rd32(const uint8_t *b){return (uint32_t)rd16(b)|((uint32_t)rd16(
 static uint16_t note_hz(char key,bool sharp,int octave)
 {
  static const uint16_t hz[]={262,294,330,349,392,440,494,0};
- const char *pos=strchr("cdefgabp",tolower((unsigned char)key));
+ const char *keys="cdefgabp";
+ const char *pos=strchr(keys,tolower((unsigned char)key));
  if(!pos||octave<3||octave>7)return 0;
- uint32_t freq=hz[pos-"cdefgabp"];
+ uint32_t freq=hz[pos-keys];
  if(sharp&&freq)freq=freq*10595u/10000u;
  while(octave>4){freq*=2;octave--;}
  while(octave<4){freq=(freq+1)/2;octave++;}
@@ -246,6 +256,12 @@ static bool get_mp3_sample(source_t *s,int16_t *out)
      info.hz>=8000&&info.hz<=48000){
    s->rate=info.hz;s->channels=info.channels;
    s->pcm_len=frames;s->pcm_pos=0;
+   /* First frame and every 1024 frames: observe actual stack margin.
+    * No full MP3 is ever copied into RAM; only a streaming window. */
+   if((s->decoded_frames++ & 1023u)==0u)
+    ESP_LOGI(TAG,"MP3 %dHz, %d channels; decoder stack available=%u bytes",
+             info.hz,info.channels,
+             (unsigned)uxTaskGetStackHighWaterMark(NULL));
   }
  }
  int ix=s->pcm_pos++*s->channels;
@@ -411,7 +427,15 @@ void audio_init(void)
  };
  e=esp_timer_create(&timer_cfg,&timer);
  if(e!=ESP_OK){ESP_LOGE(TAG,"Audio timer unavailable: %s",esp_err_to_name(e));return;}
- if(xTaskCreatePinnedToCore(audio_worker,"clock_audio",8192,NULL,4,NULL,1)!=pdPASS)
-  ESP_LOGE(TAG,"Cannot create audio worker");
+ /* minimp3 allocates mp3dec_scratch_t on the calling task's stack:
+ * the scratch structure is already >16 KiB! The former 8192-byte task
+ * overran its stack when decoding large MP3s, corrupting other tasks
+ * (panics appeared in GPTimer and esp_timer code). ESP-IDF uses BYTES
+ * for xTaskCreatePinnedToCore stack sizes, not FreeRTOS words. */
+ const uint32_t worker_stack=32768;
+ ESP_LOGI(TAG,"MP3 scratch=%u bytes; decoder task stack=%u bytes",
+          (unsigned)sizeof(mp3dec_scratch_t),(unsigned)worker_stack);
+ if(xTaskCreatePinnedToCore(audio_worker,"clock_audio",worker_stack,NULL,4,NULL,1)!=pdPASS)
+  ESP_LOGE(TAG,"Cannot start audio worker (heap too fragmented)");
  else ESP_LOGI(TAG,"GPIO26 DAC + 10kHz esp_timer TASK (no GPTimer ISR / LCD I2S0)");
 }
