@@ -13,6 +13,61 @@ No phone app, subscription or cloud account is required.
 > still requires listening and interaction testing on the physical board.**
 > S022C is *not* the 2.8-inch SPI CYD.
 
+## Experimental composite TV output (this branch only)
+
+**Unverified on hardware. This is deliberately NOT merged into `main`.**
+This is a direct GPIO25 DAC1 monochrome composite experiment using the
+GPL-3.0-or-later `aquaticus/esp32_composite_video_lib` source. That dependency
+has copyleft redistribution requirements; do not distribute resulting firmware
+without satisfying its GPL obligations. The audio GPIO26 DAC2 is left active.
+
+**Connection, only after flashing:** RCA composite center/tip (yellow video)
+to **GPIO25**, RCA outer shield to **any board GND**. Verify the PCB pad is
+actually GPIO25, not an LCD connector pin number. Power off for soldering.
+Connect **only** to a real composite video input, not HDMI, aerial/RF,
+mains, or an audio amplifier output. This is a test output and a TV's
+75-ohm input loads GPIO25, which is also hardwired to the LCD data bus.
+
+**Behavior:** TF FILES > select MP3/WAV/RTTTL > PLAY starts audio on GPIO26,
+shows a frozen STOP button on the built-in LCD, then releases the parallel
+ST7789/I2S0 controller and produces an animated monochrome test/player
+screen on composite TV. Tap the same STOP button position on the LCD to
+end audio and TV; LCD restarts. Selecting a BMP in TF FILES automatically
+starts TV mode with a dithered thumbnail: press the frozen LCD BACK control
+(top-right) to restore the LCD. Text files are unchanged. Existing clock,
+alarm and contact functions are unchanged when composite is inactive.
+
+The display RAM retains a frozen picture during composite; this version
+does not yet interrupt TV to refresh the clock every 8.64 seconds, because
+a TV losing synchronization would defeat a first test. A full LCD driver
+reinitialize restores the display when TV mode ends.
+
+For an existing clone with an old ignored `sdkconfig`, use:
+
+```sh
+git fetch origin
+git switch experiment/composite-tv-tf-media
+git pull --ff-only
+python3 tools/enable_audio_partition.py
+python3 tools/enable_composite_preview.py
+. ~/esp/esp-idf/export.sh
+idf.py reconfigure build
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+For a pure default build, PAL 320x256 is selected (change
+`Clock board adjustments > Experimental composite television uses NTSC`
+in `idf.py menuconfig` if your TV accepts NTSC only). The third-party
+DAC library requires **-O2** optimization; the helper script sets this
+without discarding locally customized LCD/touch configuration.
+
+**Risk/limitations:** untested I2S0 transfer-controller reinitialization,
+possible TV sync problems from a GPIO25 LCD-data load, possible GPIO26 DAC2
+interaction with the upstream DAC driver, and potentially degraded MP3
+decoding if composite scanline ISRs use too much CPU. If the display
+stays blank or an assert occurs, flash the previous main branch again.
+The GitHub CI build proves compilation only, not electrical signal quality.
+
 ## Quick flash (ESP-IDF v5.4)
 
 ```sh
