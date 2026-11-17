@@ -29,6 +29,9 @@
 
 #define RTC_ADDR 0x68
 #define PORTAL_SECONDS 600
+#define NTP_INTERVAL_US (300LL*1000000LL)
+#define NTP_WINDOW_US (35000000LL)
+#define WIFI_RETRY_US (5000000LL)
 static const char *TAG = "one_hundred";
 static ui_state_t ui;
 static char tz[85]="CET-1CEST,M3.5.0,M10.5.0/3";
@@ -37,6 +40,12 @@ static bool sntp_running;
 static bool wifi_started;
 static httpd_handle_t web_server;
 static int64_t portal_deadline;
+static int64_t next_ntp_sync_us;
+static int64_t wifi_session_started_us;
+static volatile int64_t wifi_retry_after_us;
+static volatile bool ntp_updated;
+static volatile bool wifi_scan_done;
+static bool wifi_scan_active;
 static int64_t timer_deadline;
 static int64_t ring_deadline;
 static int last_alarm_date=-1;
@@ -191,27 +200,81 @@ static void i2c_init(void)
     ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0,&conf));
     ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0,I2C_MODE_MASTER,0,0,0));
 }
+static void ntp_time_updated(struct timeval *tv)
+{
+    (void)tv;
+    /* lwIP task callback: let the main loop stop the radio and update RTC. */
+    ntp_updated=true;
+}
+static void stop_sntp(void)
+{
+    if(sntp_running){
+        esp_sntp_stop();
+        sntp_running=false;
+    }
+}
 static void snpt_start_once(void)
 {
     if(sntp_running || !ui.use_ntp)return;
-    sntp_running=true;
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    esp_sntp_set_time_sync_notification_cb(ntp_time_updated);
     esp_sntp_setservername(0,"pool.ntp.org");
     esp_sntp_init();
-    ESP_LOGI(TAG,"SNTP enabled");
+    sntp_running=true;
+    ESP_LOGI(TAG,"NTP started (short Wi-Fi sync window)");
+}
+static void stop_wifi_radio(void)
+{
+    stop_sntp();
+    /* Mark inactive before esp_wifi_stop emits disconnect events. */
+    wifi_session_started_us=0;
+    wifi_retry_after_us=0;
+    ui.wifi_connecting=false;
+    if(wifi_started){
+        wifi_started=false;
+        ESP_ERROR_CHECK(esp_wifi_stop());
+    }
+    wifi_connected=false;
+}
+static void start_ntp_radio(void)
+{
+    if(!ui.use_ntp || !ui.ssid[0] || ui.portal_enabled || wifi_scan_active ||
+       wifi_started)return;
+    ui.wifi_disconnect_reason=0;
+    ui.wifi_connecting=true;
+    wifi_retry_after_us=0;
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    wifi_started=true;
+    wifi_session_started_us=esp_timer_get_time();
 }
 static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data)
 {
-    (void)arg;(void)data;
-    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_START && ui.ssid[0] && !ui.portal_enabled)
+    (void)arg;
+    if(base==WIFI_EVENT && id==WIFI_EVENT_SCAN_DONE){
+        if(wifi_scan_active)wifi_scan_done=true;
+        return;
+    }
+    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_START && ui.ssid[0] &&
+       ui.use_ntp && !ui.portal_enabled && !wifi_scan_active){
         esp_wifi_connect();
+    }
     if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) {
         wifi_connected=false;
-        /* The setup portal is AP-only; do not reconnect the station here. */
-        if(ui.ssid[0] && !ui.portal_enabled)esp_wifi_connect();
+        if(wifi_started && ui.use_ntp && !ui.portal_enabled && !wifi_scan_active){
+            const wifi_event_sta_disconnected_t *ev=data;
+            ui.wifi_disconnect_reason=ev?ev->reason:0;
+            ui.wifi_connecting=false;
+            wifi_retry_after_us=esp_timer_get_time()+WIFI_RETRY_US;
+            ESP_LOGW(TAG,"Wi-Fi disconnected (reason=%u), retrying",ui.wifi_disconnect_reason);
+        }
     }
-    if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP) {
+    if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP && !wifi_scan_active){
         wifi_connected=true;
+        ui.wifi_connecting=false;
+        ui.wifi_disconnect_reason=0;
+        wifi_retry_after_us=0;
         snpt_start_once();
     }
 }
@@ -229,19 +292,16 @@ static void start_wifi(void)
     if(ui.ssid[0]){
         wifi_config_t sta={0};
         strncpy((char *)sta.sta.ssid,ui.ssid,sizeof sta.sta.ssid-1);
-        /* A 64-character WPA2 key is a raw hexadecimal PSK and fills the
-           entire ESP-IDF password array without a NUL terminator. */
+        /* A 64-character WPA2 key may fill the entire buffer (raw PSK). */
         size_t passlen=strlen(ui.password);
         if(passlen>sizeof sta.sta.password)passlen=sizeof sta.sta.password;
         memcpy(sta.sta.password,ui.password,passlen);
         sta.sta.threshold.authmode=WIFI_AUTH_OPEN;
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA,&sta));
-        ESP_ERROR_CHECK(esp_wifi_start());wifi_started=true;
-        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+        if(ui.use_ntp)start_ntp_radio();
     }
-    /* First boot: allow phone provisioning for 10 minutes automatically,
-       then shut the AP off to conserve battery. */
+    /* First boot: the phone setup AP is available for ten minutes. */
     if(!ui.ssid[0])enable_portal();
 }
 static void reboot_task(void *arg)
