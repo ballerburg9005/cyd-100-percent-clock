@@ -197,33 +197,53 @@ static void header(const char *label)
     button(258,3,57,36,"BACK",false);
     rect(9,43,302,1,edge);
 }
-static void huge(int x,int y,const char *s,uint16_t color)
+/* Tall typographic digits; dot and percent need optical alignment, so they
+   are rendered separately rather than using the existing raster glyphs. */
+#define LARGE_H 106
+static int large_width(char c)
+{
+    if(c=='.')return 10;
+    if(c=='%')return 17;
+    int index=big_index(c);
+    return index>=0?(int)big_width[index]*10/9+1:8;
+}
+static void huge(int x,int y,const char *value,uint16_t color)
 {
     int cursor=x;
-    for(int i=0;s[i];i++){
-        int g=big_index(s[i]);
-        if(g<0){cursor+=14;continue;}
-        int width=big_width[g];
-        if(y+BIG_FONT_H>top && y<top+STRIP){
-            int from=top-y;
-            if(from<0)from=0;
-            int to=top+STRIP-y;
-            if(to>BIG_FONT_H)to=BIG_FONT_H;
-            for(int dy=from;dy<to;dy++)
-                for(int dx=0;dx<width;dx++)
-                    if(big_pixel(g,dx,dy))rect(cursor+dx,y+dy,1,1,color);
+    for(const char *p=value;*p;p++){
+        if(*p=='.'){
+            rounded(cursor+2,y+LARGE_H-18,7,7,3,color);
+            cursor+=large_width(*p);
+            continue;
         }
-        cursor+=width+1;
+        if(*p=='%'){
+            text(cursor+1,y+LARGE_H-31,"%",3,color);
+            cursor+=large_width(*p);
+            continue;
+        }
+        int index=big_index(*p);
+        if(index<0){cursor+=8;continue;}
+        int w=large_width(*p)-1;
+        int from=top-y;
+        if(from<0)from=0;
+        int to=top+STRIP-y;
+        if(to>LARGE_H)to=LARGE_H;
+        for(int dy=from;dy<to;++dy){
+            int source_y=dy*BIG_FONT_H/LARGE_H;
+            for(int dx=0;dx<w;++dx){
+                int source_x=dx*big_width[index]/w;
+                if(big_pixel(index,source_x,source_y))
+                    rect(cursor+dx,y+dy,1,1,color);
+            }
+        }
+        cursor+=large_width(*p);
     }
 }
-static void huge_center(int y,const char *s,uint16_t color)
+static void huge_center(int y,const char *value,uint16_t color)
 {
     int width=0;
-    for(int i=0;s[i];++i){
-        int g=big_index(s[i]);
-        width+=g<0?14:big_width[g]+1;
-    }
-    huge((W-width)/2,y,s,color);
+    for(const char *p=value;*p;p++)width+=large_width(*p);
+    huge((W-width)/2,y,value,color);
 }
 static int day_bp(const struct tm *t)
 {
@@ -250,17 +270,17 @@ static void home(const ui_state_t *s)
     char label[48];
     if(s->time_valid){
         fmt_day(label,sizeof label,day_bp(&s->local));
-        huge_center(65,label,accent);
+        huge_center(43,label,accent);
         snprintf(label,sizeof label,"%02d:%02d",s->local.tm_hour,s->local.tm_min);
-        center(150,label,2,ink);
+        center(153,label,2,ink);
         strftime(label,sizeof label,"%A",&s->local);
-        center(180,label,2,muted);
+        center(185,label,2,muted);
         snprintf(label,sizeof label,"%04d-%02d-%02d",s->local.tm_year+1900,
                  s->local.tm_mon+1,s->local.tm_mday);
-        center(200,label,2,muted);
-        rounded(16,225,288,5,2,card);
-        int filled=day_bp(&s->local)*288/10000;
-        if(filled>0)rounded(16,225,filled,5,2,accent);
+        center(207,label,2,muted);
+        rounded(10,225,300,11,4,card);
+        int filled=day_bp(&s->local)*300/10000;
+        if(filled>0)rounded(10,225,filled,11,4,accent);
     } else {
         center(86,"SET TIME / CONNECT WIFI",2,accent);
         center(149,"--:--",2,ink);
@@ -287,7 +307,7 @@ static void alarm_page(const ui_state_t *s)
     text(11,52,"DAILY ALARM IN DECIMAL TIME",1,muted);
     char value[20],note[40];
     fmt_day(value,sizeof value,s->alarm_bp);
-    huge_center(68,value,accent);
+    huge_center(51,value,accent);
     int sec=(s->alarm_bp*86400+5000)/10000;
     snprintf(note,sizeof note,"%02d:%02d LOCAL",sec/3600%24,sec/60%60);
     center(144,note,2,muted);
@@ -300,21 +320,22 @@ static void alarm_page(const ui_state_t *s)
 static void timer_page(const ui_state_t *s)
 {
     header("TIMER");
-    text(11,52,"DURATION / PERCENT OF 24H",1,muted);
+    text(11,52,"PERCENT OF DAY",1,muted);
     int sec=s->timer_running?s->timer_seconds_left:
             ((int64_t)s->timer_bp*86400+5000)/10000;
     if(sec<0)sec=0;
     int bp=s->timer_running?(int)((int64_t)sec*10000/86400):s->timer_bp;
     char value[20],note[40];
     fmt_duration(value,sizeof value,bp);
-    huge_center(68,value,accent);
+    huge_center(51,value,accent);
     snprintf(note,sizeof note,"%02d:%02d REMAINING",sec/60,sec%60);
     center(144,note,2,muted);
     button(5,167,73,35,"-0.10",false);
     button(84,167,73,35,"-0.01",false);
     button(163,167,73,35,"+0.01",false);
     button(242,167,73,35,"+0.10",false);
-    button(18,208,284,29,s->timer_running?"STOP TIMER":"START TIMER",s->timer_running);
+    button(17,208,93,29,"RESET",false);
+    button(119,208,184,29,s->timer_running?"STOP TIMER":"START TIMER",s->timer_running);
 }
 static void edit_time(const ui_state_t *s)
 {
@@ -358,22 +379,28 @@ static void wifi_page(const ui_state_t *s)
 }
 static void keyboard_page(const ui_state_t *s)
 {
-    header(s->editing_password?"WIFI PASSWORD":"WIFI SSID");
-    char preview[43]={0};
+    /* More square keys with bezel margins and visible input/count. */
+    text(11,4,s->editing_password?"PASSWORD":"WIFI SSID",1,muted);
+    char counter[24];
     size_t len=strlen(s->keyboard_value);
-    snprintf(preview,sizeof preview,"%.40s",s->keyboard_value+(len>40?len-40:0));
-    rounded(10,48,300,30,4,card);
-    text(15,58,preview,1,ink); /* Visible plaintext, as requested. */
+    snprintf(counter,sizeof counter,"%u/%u",(unsigned)len,
+                 s->editing_password?64u:32u);
+    text(259,4,counter,1,accent);
+    char preview[48]={0};
+    snprintf(preview,sizeof preview,"%.46s",
+             s->keyboard_value+(len>46?len-46:0));
+    rounded(14,19,292,30,4,card);
+    text(19,29,preview,1,ink);
     for(int i=0;i<42;i++){
-        int col=i%7,row=i/7,x=5+col*45,y=82+row*22;
+        int col=i%7,row=i/7,x=21+col*40,y=51+row*27;
         char letter[2]={keys[i],0};
         if(s->keyboard_lower && isalpha((unsigned char)letter[0]))
             letter[0]=(char)tolower((unsigned char)letter[0]);
-        button(x,y,43,20,letter,false);
+        button(x,y,38,25,letter,false);
     }
-    button(5,214,91,25,s->keyboard_lower?"LOWER":"UPPER",false);
-    button(107,214,94,25,"DELETE",false);
-    button(211,214,104,25,"SAVE",true);
+    button(22,214,84,25,"DELETE",false);
+    button(117,214,86,25,s->keyboard_lower?"LOWER":"UPPER",false);
+    button(214,214,84,25,"SAVE",true);
 }
 static void contact_page(const ui_state_t *s)
 {
@@ -397,7 +424,8 @@ static void look_page(const ui_state_t *s)
     header("LOOK");
     center(59,"COLOR SCHEME",2,muted);
     const char *names[]={"ROSE","GLACIER","HONEY","DARK"};
-    button(35,91,250,42,names[s->theme%4],true);
+    button(18,89,138,45,names[s->theme%4],true);
+    button(167,89,135,45,"DARK",s->theme==3);
     char label[36];snprintf(label,sizeof label,"BRIGHTNESS: %u%%",s->brightness);
     center(152,label,2,ink);
     button(43,181,94,41,"DIM",false);
