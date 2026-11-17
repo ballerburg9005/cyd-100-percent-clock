@@ -46,11 +46,15 @@ static void scan(void)
            !audio_file_supported(ent->d_name))continue;
         /* FAT names may contain multibyte UTF-8. Never silently chop a
          * pathname into an unopenable or invalid UTF-8 fragment. */
-        if(strlen(ent->d_name)>=sizeof file_names[0]){
-            ESP_LOGW(TAG,"Skipping filename longer than %u bytes",(unsigned)(sizeof file_names[0]-1));
+        size_t name_len=strlen(ent->d_name);
+        if(name_len>=sizeof file_names[0]){
+            ESP_LOGW(TAG,"Skipping filename longer than %u bytes",
+                     (unsigned)(sizeof file_names[0]-1));
             continue;
         }
-        snprintf(file_names[file_count++],sizeof file_names[0],"%s",ent->d_name);
+        /* We already validated the exact byte length; copy UTF-8 whole,
+         * including its NUL, without GCC's format-truncation warning. */
+        memcpy(file_names[file_count++],ent->d_name,name_len+1);
     }
     closedir(dir);
     snprintf(sd_status,sizeof sd_status,"MOUNT OK / %d FILES",file_count);
