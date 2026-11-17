@@ -88,7 +88,9 @@ change. The display never prematurely rolls over to 100.00%.
 - **Set Time:** `[X] USE NTP` checkbox defaults ON; uncheck for the
   symmetrically spaced offline date/time editor. Year is shown as `26`
   rather than `2026` but the full year is retained internally; the
-  enlarged **SAVE TIME** button sits at bottom-left. DS3231, when fitted,
+  enlarged **SAVE TIME** button sits at bottom-left. The six adjustment
+  controls sit in three symmetrical, inset columns with about 20px bezel
+  margin, matching the keyboard edge spacing. DS3231, when fitted,
   backs up UTC independently of display time zone.
 - **Wi-Fi:** touchscreen keyboard uses inset 38×25-pixel keys, a visible
   plaintext input and character count, DELETE on the left, SHIFT in the
