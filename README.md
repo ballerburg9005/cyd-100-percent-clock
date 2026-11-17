@@ -8,8 +8,10 @@ HH:MM and ISO 8601 date are small and secondary. Big numerals use embedded
 rasterized typographic glyphs, not seven-segment blocks.
 No phone app, subscription or cloud account is required.
 
-> **Prototype, not yet tested on the author's physical board.** Check the
-> printed PCB model before flashing. S022C is *not* the 2.8-inch SPI CYD.
+> The display, touch, TF mounting and original clock firmware have been
+> flashed and exercised on an ESP32-2432S022C. **The new DAC audio playback
+> still requires listening and interaction testing on the physical board.**
+> S022C is *not* the 2.8-inch SPI CYD.
 
 ## Quick flash (ESP-IDF v5.4)
 
@@ -81,7 +83,10 @@ change. The display never prematurely rolls over to 100.00%.
   selected color theme immediately; both flashing and sound stop after
   **0.10% of a day = 86.4 seconds** (1 min 26.4 sec).
   Idle backlight dimming is suspended during alerts.
-  It uses a gentle ascending three-note tone on the onboard speaker.
+  Both pages have a **SOUND** button for selecting one of four firmware
+  chiptunes or an external TF-card WAV/MP3/RTTTL file. The default is a short
+  ascending three-note chime. Sounds repeat until the alarm/timer is dismissed
+  or reaches its automatic 86.4-second cutoff.
 - **Kitchen timer:** `X.XX%` duration (0.01%–9.99% of one day), adjustable
   in ±0.01% or ±0.10% steps. **RESET** restores exactly five minutes
   (300 seconds), shown as approximately `0.35%`. The underlying timer stays
@@ -112,7 +117,9 @@ change. The display never prematurely rolls over to 100.00%.
   from the repository's `face.bmp`, center-cropped without distortion to
   a 128×165 RGB565 thumbnail. **No SD card is needed for CONTACT.**
   The RELOAD SD button and SD status were removed from CONTACT; the separate
-  TF FILES browser still supports SD cards. XMPP, email and SMS are no
+  TF FILES browser still supports SD cards. CONTACT has compact PLAY/STOP and
+  NEXT controls for previewing four original built-in chiptunes without any
+  TF card. XMPP, email and SMS are no
   longer truncated to 24 characters: long values continue over the photo,
   with a thin black text outline where more than three characters overlap.
   Values longer than one full 320px row wrap onto the next line.
@@ -140,10 +147,54 @@ change. The display never prematurely rolls over to 100.00%.
   after 40 seconds of idle time; the LCD stays on.
 - **Files:** TF/microSD root browser with **RESCAN** in the top bar and
   a visible mount status/error so hot insertion can be tested without rebooting.
-  Reads plain `.txt`, displays uncompressed 24/32-bit `.bmp`, and
-  **lists** `.mp3` filenames. MP3 playback, JPEG/PNG, EPUB, folders
-  and other binary decoders are deliberately absent.
-  Inserting a card is optional: missing cards must not prevent boot.
+  Reads plain `.txt`, displays uncompressed 24/32-bit `.bmp`, and can
+  **PLAY** `.wav`, `.mp3` and `.rtttl` sound files. On an audio file's
+  detail screen, PLAY/STOP previews it, while ALARM/TIMER sets that file
+  as the corresponding alert. MP3 playback uses the CC0 minimp3 decoder.
+  JPEG/PNG, EPUB, folders and other binary decoders remain unavailable.
+  A missing TF card cannot prevent boot; selecting a missing TF alert sound
+  falls back to the built-in chime.
+
+### Audio playback and available flash
+
+Four original melodies are built into firmware: CLASSIC CHIME, PIXEL SUNRISE,
+8-BIT RUSH and NIGHT CIRCUIT. CONTACT -> PLAY and NEXT work without a card.
+ALARM -> SOUND and TIMER -> SOUND choose independently from those melodies
+or open TF FILES to select a removable audio file. TF FILES also allows
+independent preview and one-tap assignment as an alarm or timer.
+
+Optional original RTTTL files are available under [chiptunes/](chiptunes/).
+Copy these `.rtttl` files to the **root** of a FAT32 TF card to play them.
+Other supported files: uncompressed RIFF PCM `.wav` (8- or 16-bit,
+mono/stereo, 8–48 kHz) and standard MPEG Layer III `.mp3` (including ID3v2
+tags). Audio is rendered as **16 kHz, mono, 8-bit DAC**, via GPIO26's
+onboard speaker amplifier; expect lo-fi quality and reduced loudness.
+This is new code, and actual timing/volume must be tested on the board.
+
+**Why no I2S DAC DMA?** On ESP32, the i80 parallel LCD and internal
+I2S DAC DMA share I2S0. Audio instead uses the DAC *oneshot* mode with
+a 16 kHz GPTimer callback, keeping the display peripheral independent.
+The MP3 decoder runs in a separate FreeRTOS task.
+
+**Flash:** The tested S022C has 4 MiB flash; the old default firmware had
+only a 1 MiB app partition. `partitions.csv` configures a **3 MiB factory
+app** starting at the same 0x10000 offset, with NVS/PHY offsets unchanged.
+New clones select this automatically. If you already built this project,
+your ignored local `sdkconfig` may still select the old 1 MiB partition.
+After pulling, run the one-time migration below; it preserves all other
+settings and backs up your previous file:
+
+```sh
+python3 tools/enable_audio_partition.py
+. ~/esp/esp-idf/export.sh
+idf.py reconfigure build
+idf.py -p /dev/ttyUSB0 flash
+```
+
+The previous app and existing NVS are not erased by this partition change.
+Do not use this 3 MiB partition table on a device with less than 4 MiB flash.
+GitHub Actions builds the public **fake-contact** variant. Locally generated
+firmware containing private contact details should not be uploaded publicly.
 
 **Hardware notes:** The LCD is rotated to landscape; default touch mapping
 is native CST816S portrait (x: 0..239, y: 0..319) → landscape
