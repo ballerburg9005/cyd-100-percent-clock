@@ -93,7 +93,7 @@ const char *audio_builtin_name(int i)
 void audio_builtin_key(int i,char *out,size_t len)
 {if(len)snprintf(out,len,"builtin:%d",i>=0&&i<AUDIO_BUILTIN_COUNT?i:0);}
 void audio_sd_key(const char *name,char *out,size_t len)
-{if(len)snprintf(out,len,"sd:%.63s",name?name:"");}
+{if(len)snprintf(out,len,"sd:%s",name?name:"");}
 static bool has_ext(const char *name,const char *suffix)
 {size_t a=strlen(name),b=strlen(suffix);return a>=b&&!strcasecmp(name+a-b,suffix);}
 bool audio_file_supported(const char *name)
@@ -303,7 +303,7 @@ static bool open_source(source_t *s,const char *key,bool loop)
  if(strncmp(key,"sd:",3)||!key[3])return false;
  const char *name=key+3;
  if(strchr(name,'/')||strchr(name,'\\')||strstr(name,".."))return false;
- char path[112];snprintf(path,sizeof path,"/sd/%s",name);
+ char path[160];snprintf(path,sizeof path,"/sd/%s",name);
  s->file=fopen(path,"rb");
  if(!s->file)return false;
  if(has_ext(name,".rtttl"))return load_rtttl(s);
