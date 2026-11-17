@@ -200,19 +200,24 @@ static void header(const char *label)
 /* Tall typographic digits; dot and percent need optical alignment, so they
    are rendered separately rather than using the existing raster glyphs. */
 #define LARGE_H 106
+/* Visible column bounds measured from the glyph data itself; stripping
+   blank side bearings gives genuinely close-set digits instead of just
+   reducing the space after an already-padded bitmap. */
+static const uint8_t digit_min_x[10]={5,8,5,6,4,6,5,6,5,5};
+static const uint8_t digit_max_x[10]={42,40,40,41,43,41,42,41,42,42};
 static int large_width(char c)
 {
-    if(c=='.')return 10;
+    if(c=='.')return 9;
     if(c=='%')return 17;
     int index=big_index(c);
-    return index>=0?(int)big_width[index]*10/9+1:8;
+    return index>=0?52:8;
 }
 static void huge(int x,int y,const char *value,uint16_t color)
 {
     int cursor=x;
     for(const char *p=value;*p;p++){
         if(*p=='.'){
-            rounded(cursor+2,y+LARGE_H-18,7,7,3,color);
+            rounded(cursor+1,y+LARGE_H-13,7,7,3,color);
             cursor+=large_width(*p);
             continue;
         }
@@ -231,7 +236,8 @@ static void huge(int x,int y,const char *value,uint16_t color)
         for(int dy=from;dy<to;++dy){
             int source_y=dy*BIG_FONT_H/LARGE_H;
             for(int dx=0;dx<w;++dx){
-                int source_x=dx*big_width[index]/w;
+                int source_x=digit_min_x[index]+
+                    dx*(digit_max_x[index]-digit_min_x[index])/w;
                 if(big_pixel(index,source_x,source_y))
                     rect(cursor+dx,y+dy,1,1,color);
             }
