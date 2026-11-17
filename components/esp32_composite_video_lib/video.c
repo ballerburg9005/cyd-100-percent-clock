@@ -371,15 +371,17 @@ static void setup_video_dac(void)
     I2S0.sample_rate_conf.tx_bck_div_num = 1;
     I2S0.clkm_conf.clka_en = 1;                 // use clk_apll clock
     I2S0.fifo_conf.tx_fifo_mod = 1; // 16-bit single channel data
-    /* These settings were omitted in the ESP-IDF 5.x port. Without
-     * descriptor write-back, a two-buffer ring completes exactly two
-     * OUT_EOF interrupts and stops (observed on the actual S022C).
-     * Mirror the continuous DAC DMA setup in ESP-IDF 5.4.4
-     * components/esp_driver_dac/esp32/dac_dma.c. */
+    /* This is a permanently circular scanline ring, NOT a one-shot DMA
+     * stream. IDF's streaming DAC driver uses auto_wrback=1 to return each
+     * descriptor to CPU ownership. That races ring wrap-around on this
+     * S022C: two descriptors were exhausted with OUT_DSCR_ERR. Leave
+     * auto_wrback OFF so the hardware-owned cyclic descriptors stay
+     * available for repeated transmission. The ISR refreshes buffer data
+     * as soon as each transfer completes. */
     I2S0.fifo_conf.dscr_en = 1;
-    I2S0.lc_conf.out_auto_wrback = 1;
+    I2S0.lc_conf.out_auto_wrback = 0;
     I2S0.lc_conf.out_eof_mode = 1;
-    I2S0.lc_conf.check_owner = 1; /* Detect accidental reuse of CPU-owned descriptors. */
+    I2S0.lc_conf.check_owner = 1; /* Catch an invalid linked descriptor. */
 
 	const size_t DMA_BUFFER_COUNT = sizeof(dma_buffers)/sizeof(lldesc_t);
     for (size_t n=0; n<DMA_BUFFER_COUNT; n++)
@@ -1020,10 +1022,9 @@ static void IRAM_ATTR i2s_interrupt(void *dma_buffer_size_bytes)
             pal_render_scan_line();
 
         INTERRUPT_STOPWATCH_STOP();
-        /* The ESP32 DMA engine returns each finished descriptor to CPU
-         * ownership (owner=0). Refill its scanline first, then hand the
-         * descriptor back to DMA. Without this step a two-descriptor ring
-         * stops after precisely two EOF interrupts, with out_dscr_err set. */
+        /* DMA circular mode normally retains ownership because
+         * out_auto_wrback is disabled. Reassert only after rendering,
+         * also covering chip revisions that update the descriptor. */
         lldesc_t *completed = (lldesc_t *)I2S0.out_eof_des_addr;
         __asm__ __volatile__ ("" ::: "memory");
         completed->owner = 1;
