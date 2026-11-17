@@ -66,19 +66,25 @@ change. The display never prematurely rolls over to 100.00%.
 
 ### Controls in the landscape firmware
 
-- **Clock:** near-full-width `XX.XX%` numerals, with extra breathing room
-  around the decimal point and percent sign. Date, HH:MM and weekday share
-  one line (e.g. `2026-11-17 01:24 Tuesday`). The progress bar remains 11px.
-- **Alarm:** local daily time shown as `XX.XX%`; adjust by ±0.01% or ±1.00%,
-  toggle on/off. 0.01% of a day is 8.64 seconds. It uses a gentle ascending
-  three-note tone on the onboard speaker. Alarm resolution is 8.64 s.
+- **Clock:** balanced vertically, with a four-pixel gap between the large
+  `XX.XX%` characters. The alarm's decimal time and a bell appear in the
+  top row when enabled, between the small status and MENU. Date, HH:MM
+  and weekday share one line (e.g. `2026-11-17 01:24 Tuesday`).
+  The progress bar remains 11px.
+- **Alarm:** local daily time shown as `XX.XX%` with smaller digits
+  to clear the local-time caption. Tap ±0.01% or ±1.00%; holding a key
+  accelerates repeat after 0.7s, increasing further after 2.3s. Flash
+  writes are deferred until the adjustment ends. 0.01% of a day is 8.64s.
+  It uses a gentle ascending three-note tone on the onboard speaker.
 - **Kitchen timer:** `X.XX%` duration (0.01%–9.99% of one day), adjustable
   in ±0.01% or ±0.10% steps. **RESET** restores exactly five minutes
   (300 seconds), shown as approximately `0.35%`. The underlying timer stays
   exact. The display is decimal only: no redundant MM:SS or explanatory row.
-- **Set Time:** `[X] USE NTP` checkbox defaults ON; manual date/time controls
-  are hidden while NTP is selected. Uncheck for offline time setting.
-  DS3231, when fitted, backs up UTC independently of display time zone.
+- **Set Time:** `[X] USE NTP` checkbox defaults ON; uncheck for the
+  symmetrically spaced offline date/time editor. Year is shown as `26`
+  rather than `2026` but the full year is retained internally; the
+  enlarged **SAVE TIME** button sits at bottom-left. DS3231, when fitted,
+  backs up UTC independently of display time zone.
 - **Wi-Fi:** touchscreen keyboard uses inset 38×25-pixel keys, a visible
   plaintext input and character count, DELETE on the left, SHIFT in the
   middle and SAVE on the right. Supports 8–63-character WPA2 passphrases
@@ -95,10 +101,12 @@ change. The display never prematurely rolls over to 100.00%.
 - **Contact:** XMPP JID and email address configured through portal. Place a
   **24-bit uncompressed BMP named `face.bmp`** in the microSD root to show
   a local thumbnail. No personal picture/details are bundled in firmware.
-- **Look:** four themes: Rose, Glacier, Honey and **DARK** with truly black
-  background and subdued foreground colors. The DARK button selects it
-  immediately, while NEXT COLOR cycles themes. Backlight automatically dims
-  after 40 seconds with no touch; the LCD stays on.
+- **Look:** reworked muted, high-contrast palettes **SLATE**, **MOSS**,
+  **PAPER** and **BLACK**. BLACK uses literal RGB565 zero as background,
+  with cool-white ink and matching subdued controls. LCD colour inversion
+  is disabled so black does not display white. The DARK button selects BLACK
+  immediately, while NEXT COLOR cycles all four. Backlight dims
+  after 40 seconds of idle time; the LCD stays on.
 - **Files:** optional TF/microSD root browser. Reads plain `.txt`, displays
   uncompressed 24-bit `.bmp`, and **lists** `.mp3` filenames. MP3 playback,
   folders, JPEG/PNG, EPUB and other binary decoders are deliberately absent.
@@ -153,8 +161,11 @@ compatibility. The DS3231's button-cell backup is **separate**.
 The LCD backlight + Wi-Fi consume substantially more power than the RTC.
 The firmware dims the backlight after inactivity and **turns Wi-Fi fully off**
 between five-minute NTP synchronizations, with a 35-second maximum active
-attempt if the router/time server cannot be reached. The clock counts time
-locally between polls. Wi-Fi scan and setup AP are explicit exceptions.
+attempt if the router/time server cannot be reached. Before the first
+successful sync, two quick retries are scheduled after 20 seconds, then
+the radio falls back to five-minute intervals to preserve battery.
+The clock counts time locally between polls. Wi-Fi scan and setup AP
+are explicit exceptions.
 An always-visible LCD on a ~2500 mAh cell is generally an
 **hours-to-day** project rather than weeks. Actual runtime must be measured.
 USB power is the realistic mode for permanent full-brightness operation.
