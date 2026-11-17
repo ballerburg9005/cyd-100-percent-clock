@@ -37,5 +37,5 @@ typedef struct {
 
 esp_err_t screen_init(void);
 void screen_draw(const ui_state_t *state);
-bool screen_poll_touch(int *x, int *y);
+bool screen_poll_touch(int *x, int *y, ui_page_t page);
 void screen_set_brightness(uint8_t value);

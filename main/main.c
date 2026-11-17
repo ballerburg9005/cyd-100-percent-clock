@@ -32,6 +32,7 @@
 #define NTP_INTERVAL_US (300LL*1000000LL)
 #define NTP_WINDOW_US (35000000LL)
 #define WIFI_RETRY_US (5000000LL)
+#define NTP_FIRST_RETRY_US (20000000LL)
 static const char *TAG = "one_hundred";
 static ui_state_t ui;
 static char tz[85]="CET-1CEST,M3.5.0,M10.5.0/3";
@@ -41,6 +42,7 @@ static bool wifi_started;
 static httpd_handle_t web_server;
 static int64_t portal_deadline;
 static int64_t next_ntp_sync_us;
+static uint8_t initial_sync_failures;
 static int64_t wifi_session_started_us;
 static volatile int64_t wifi_retry_after_us;
 static volatile bool ntp_updated;
@@ -49,6 +51,8 @@ static bool wifi_scan_active;
 static int64_t timer_deadline;
 static int64_t ring_deadline;
 static int last_alarm_date=-1;
+static bool alarm_adjust_dirty;
+static int64_t last_alarm_adjust_us;
 static int64_t last_touch_us;
 static int sound_hz;
 static void enable_portal(void);
@@ -247,9 +251,15 @@ static void start_ntp_radio(void)
     ui.wifi_connecting=true;
     wifi_retry_after_us=0;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    wifi_started=true;
+    wifi_started=true; /* Event callback can run as soon as start succeeds. */
+    esp_err_t start_result=esp_wifi_start();
+    if(start_result!=ESP_OK){
+        wifi_started=false;
+        ESP_ERROR_CHECK(start_result);
+    }
     wifi_session_started_us=esp_timer_get_time();
+    ESP_LOGI(TAG,"Wi-Fi session: saved SSID length=%u, previous first-sync failures=%u",
+             (unsigned)strlen(ui.ssid),(unsigned)initial_sync_failures);
 }
 static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data)
 {
@@ -324,6 +334,7 @@ static void apply_wifi_credentials(void)
     ui.ntp_synced=false;
     ntp_updated=false;
     next_ntp_sync_us=0;
+    initial_sync_failures=0;
     if(ui.use_ntp && ui.ssid[0])start_ntp_radio();
 }
 static void reboot_task(void *arg)
@@ -644,9 +655,14 @@ static void touch(int x,int y)
             if(v<0)v+=10000;
             if(v>=10000)v-=10000;
             ui.alarm_bp=(uint16_t)v;
-            store();
+            /* A long hold can repeat at 65 ms. Defer flash/NVS writing
+             * until release rather than writing hundreds of times. */
+            alarm_adjust_dirty=true;
+            last_alarm_adjust_us=esp_timer_get_time();
         }else if(y>=208){
-            ui.alarm_enabled=!ui.alarm_enabled;store();
+            ui.alarm_enabled=!ui.alarm_enabled;
+            store();
+            alarm_adjust_dirty=false;
         }
     }else if(ui.page==UI_TIMER){
         if(y>=180&&y<207){
@@ -685,15 +701,19 @@ static void touch(int x,int y)
             return;
         }
         if(ui.use_ntp)return;
-        if(y>=210){set_manual_time();return;}
+        /* Match the rendered bottom-left save and precisely spaced +/- keys. */
+        if(y>=201&&y<238 && x>=12&&x<206){
+            set_manual_time();
+            return;
+        }
         int row=-1;
-        if(y>=99&&y<124)row=0;
-        if(y>=160&&y<185)row=1;
-        if(row>=0){
-            int col=x/102,localx=x%102;
+        if(y>=106&&y<134)row=0;
+        if(y>=164&&y<192)row=1;
+        if(row>=0 && x>=12 && x<318){
+            int col=(x-12)/102,localx=(x-12)%102;
             if(col>=0&&col<3){
-                if(localx>=66&&localx<89)adjust_time_field(col,row,-1);
-                else if(localx>=89)adjust_time_field(col,row,1);
+                if(localx>=49&&localx<73)adjust_time_field(col,row,-1);
+                else if(localx>=76&&localx<100)adjust_time_field(col,row,1);
             }
         }
     }else if(ui.page==UI_WIFI){
@@ -809,7 +829,7 @@ void app_main(void)
     while(true){
         int64_t now_us=esp_timer_get_time();
         int x=0,y=0;bool draw=false;
-        if(screen_poll_touch(&x,&y)){
+        if(screen_poll_touch(&x,&y,ui.page)){
             ui.touch_feedback=true;
             ui.touch_x=(int16_t)x;
             ui.touch_y=(int16_t)y;
@@ -820,6 +840,10 @@ void app_main(void)
         if(ui.touch_feedback && now_us>=touch_feedback_deadline){
             ui.touch_feedback=false;
             draw=true;
+        }
+        if(alarm_adjust_dirty && now_us-last_alarm_adjust_us>=450000LL){
+            store();
+            alarm_adjust_dirty=false;
         }
         if(ui.portal_enabled && now_us>portal_deadline){
             disable_portal();draw=true;
@@ -842,6 +866,7 @@ void app_main(void)
             }else if(ntp_updated){
                 ntp_updated=false;
                 ui.ntp_synced=true;
+                initial_sync_failures=0;
                 time_t synced_epoch=time(NULL);
                 rtc_save(synced_epoch);
                 stop_wifi_radio();
@@ -849,9 +874,16 @@ void app_main(void)
                 draw=true;
             }else if(wifi_session_started_us &&
                      now_us-wifi_session_started_us>=NTP_WINDOW_US){
-                ESP_LOGW(TAG,"NTP Wi-Fi window timed out after 35s");
+                ESP_LOGW(TAG,"NTP Wi-Fi window timed out after 35s (Wi-Fi reason=%u)",
+                         (unsigned)ui.wifi_disconnect_reason);
                 stop_wifi_radio();
-                next_ntp_sync_us=now_us+NTP_INTERVAL_US;
+                /* A saved network may need a second try after boot. Retry
+                 * twice promptly, then back off to the five-minute interval
+                 * instead of wasting battery indefinitely. */
+                if(initial_sync_failures<3)++initial_sync_failures;
+                next_ntp_sync_us=now_us+
+                    (!ui.ntp_synced && initial_sync_failures<3 ?
+                     NTP_FIRST_RETRY_US:NTP_INTERVAL_US);
                 draw=true;
             }else if(!wifi_started && now_us>=next_ntp_sync_us){
                 start_ntp_radio();

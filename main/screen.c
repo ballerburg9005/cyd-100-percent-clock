@@ -184,12 +184,13 @@ static void image_preview(int x,int y,int w,int h)
 }
 static void palette(int theme)
 {
-    /* Rose / glacial teal / honey / battery-oriented nearly-black. */
+    /* RGB565; disable ST7789 colour inversion at panel initialization.
+     * SLATE, MOSS, PAPER and genuine BLACK offer calm high-contrast ink. */
     switch(theme){
-      case 1: bg=0x084F;card=0x122F;ink=0xEFFF;accent=0x85FF;muted=0x8CB4;edge=0x2B53;break;
-      case 2: bg=0x1806;card=0x310B;ink=0xFFF1;accent=0xFE82;muted=0xBD2C;edge=0x5A4B;break;
-      case 3: bg=0x0000;card=0x1082;ink=0xDF1B;accent=0xB36D;muted=0x7BEF;edge=0x2104;break;
-      default:bg=0x1022;card=0x2846;ink=0xFF9B;accent=0xFAED;muted=0xA48E;edge=0x408A;break;
+      case 1: bg=0x10E3;card=0x21C6;ink=0xEF9D;accent=0xB695;muted=0xA5B4;edge=0x4B2A;break;
+      case 2: bg=0xF79E;card=0xDF1C;ink=0x1925;accent=0x1AAD;muted=0x42CC;edge=0xB618;break;
+      case 3: bg=0x0000;card=0x1925;ink=0xF79D;accent=0xC6BC;muted=0xADD8;edge=0x3A29;break;
+      default:bg=0x10C4;card=0x21A8;ink=0xEF9E;accent=0x9E59;muted=0xA5B7;edge=0x430D;break;
     }
 }
 static void header(const char *label)
@@ -198,59 +199,69 @@ static void header(const char *label)
     button(258,3,57,36,"BACK",false);
     rect(9,43,302,1,edge);
 }
-/* Tall typographic digits; dot and percent need optical alignment, so they
-   are rendered separately rather than using the existing raster glyphs. */
-#define LARGE_H 114
-/* Visible column bounds measured from the glyph data itself; stripping
-   blank side bearings gives genuinely close-set digits instead of just
-   reducing the space after an already-padded bitmap. */
+/* Tall typographic digits, with four-pixel visual separation.
+ * Two heights keep the alarm's small LOCAL row clear of its large digits. */
+#define LARGE_GAP 3
+#define LARGE_HOME_H 114
+#define LARGE_ALARM_H 94
 static const uint8_t digit_min_x[10]={5,8,5,6,4,6,5,6,5,5};
 static const uint8_t digit_max_x[10]={42,40,40,41,43,41,42,41,42,42};
-static int large_width(char c)
+static int large_width(char c,int digit_advance)
 {
     if(c=='.')return 15;
     if(c=='%')return 26;
-    int index=big_index(c);
-    return index>=0?65:8;
+    return big_index(c)>=0?digit_advance:8;
 }
-static void huge(int x,int y,const char *value,uint16_t color)
+static void huge(int x,int y,const char *value,uint16_t color,
+                 int height,int digit_advance)
 {
     int cursor=x;
     for(const char *p=value;*p;p++){
         if(*p=='.'){
-            rounded(cursor+4,y+LARGE_H-14,7,7,3,color);
-            cursor+=large_width(*p);
-            continue;
-        }
-        if(*p=='%'){
-            text(cursor+4,y+LARGE_H-31,"%",3,color);
-            cursor+=large_width(*p);
-            continue;
-        }
-        int index=big_index(*p);
-        if(index<0){cursor+=8;continue;}
-        int w=large_width(*p)-1;
-        int from=top-y;
-        if(from<0)from=0;
-        int to=top+STRIP-y;
-        if(to>LARGE_H)to=LARGE_H;
-        for(int dy=from;dy<to;++dy){
-            int source_y=dy*BIG_FONT_H/LARGE_H;
-            for(int dx=0;dx<w;++dx){
-                int source_x=digit_min_x[index]+
-                    dx*(digit_max_x[index]-digit_min_x[index])/w;
-                if(big_pixel(index,source_x,source_y))
-                    rect(cursor+dx,y+dy,1,1,color);
+            rounded(cursor+4,y+height-14,7,7,3,color);
+        }else if(*p=='%'){
+            text(cursor+4,y+height-31,"%",3,color);
+        }else{
+            int index=big_index(*p);
+            if(index>=0){
+                int w=digit_advance-1;
+                int from=top-y;
+                if(from<0)from=0;
+                int to=top+STRIP-y;
+                if(to>height)to=height;
+                for(int dy=from;dy<to;++dy){
+                    int source_y=dy*BIG_FONT_H/height;
+                    for(int dx=0;dx<w;++dx){
+                        int source_x=digit_min_x[index]+
+                            dx*(digit_max_x[index]-digit_min_x[index])/w;
+                        if(big_pixel(index,source_x,source_y))
+                            rect(cursor+dx,y+dy,1,1,color);
+                    }
+                }
             }
         }
-        cursor+=large_width(*p);
+        cursor+=large_width(*p,digit_advance);
+        if(p[1])cursor+=LARGE_GAP;
     }
 }
-static void huge_center(int y,const char *value,uint16_t color)
+static void huge_center(int y,const char *value,uint16_t color,
+                        int height,int digit_advance)
 {
     int width=0;
-    for(const char *p=value;*p;p++)width+=large_width(*p);
-    huge((W-width)/2,y,value,color);
+    for(const char *p=value;*p;p++){
+        width+=large_width(*p,digit_advance);
+        if(p[1])width+=LARGE_GAP;
+    }
+    huge((W-width)/2,y,value,color,height,digit_advance);
+}
+/* A small bell in the otherwise unused top strip, drawn without requiring
+ * Unicode glyphs that the 5x7 bitmap font does not support. */
+static void bell(int x,int y,uint16_t color)
+{
+    rect(x+6,y,2,2,color);
+    rounded(x+2,y+3,10,11,5,color);
+    rect(x,y+13,14,2,color);
+    rect(x+5,y+16,4,2,color);
 }
 static int day_bp(const struct tm *t)
 {
@@ -275,12 +286,18 @@ static void home(const ui_state_t *s)
                     s->ntp_synced?"NTP / SYNCED":
                     s->rtc_present?"RTC / OFFLINE":"LOCAL / OFFLINE",1,muted);
     button(255,5,60,34,"MENU",false);
+    if(s->alarm_enabled){
+        char alarm_label[12];
+        fmt_day(alarm_label,sizeof alarm_label,s->alarm_bp);
+        bell(115,11,accent);
+        text(137,13,alarm_label,2,ink);
+    }
     char label[48];
     if(s->time_valid){
         fmt_day(label,sizeof label,day_bp(&s->local));
-        huge_center(40,label,accent);
+        huge_center(53,label,accent,LARGE_HOME_H,61);
         strftime(label,sizeof label,"%Y-%m-%d %H:%M %A",&s->local);
-        center(188,label,2,ink);
+        center(195,label,2,ink);
         rounded(10,225,300,11,4,card);
         int filled=day_bp(&s->local)*300/10000;
         if(filled>0)rounded(10,225,filled,11,4,accent);
@@ -310,7 +327,7 @@ static void alarm_page(const ui_state_t *s)
     text(11,52,"DAILY ALARM IN DECIMAL TIME",1,muted);
     char value[20],note[40];
     fmt_day(value,sizeof value,s->alarm_bp);
-    huge_center(59,value,accent);
+    huge_center(60,value,accent,LARGE_ALARM_H,58);
     int sec=(s->alarm_bp*86400+5000)/10000;
     snprintf(note,sizeof note,"%02d:%02d LOCAL",sec/3600%24,sec/60%60);
     center(164,note,2,muted);
@@ -329,7 +346,7 @@ static void timer_page(const ui_state_t *s)
     int bp=s->timer_running?(int)(((int64_t)sec*10000+43200)/86400):s->timer_bp;
     char value[20];
     fmt_duration(value,sizeof value,bp);
-    huge_center(58,value,accent);
+    huge_center(58,value,accent,110,60);
     button(5,181,73,24,"-0.10",false);
     button(84,181,73,24,"-0.01",false);
     button(163,181,73,24,"+0.01",false);
@@ -350,17 +367,18 @@ static void edit_time(const ui_state_t *s)
         return;
     }
     static const char *labels[]={"YEAR","MONTH","DAY","HOUR","MIN","SEC"};
-    int vals[]={s->year,s->month,s->day,s->hour,s->minute,s->second};
-    char b[20];
+    int vals[]={s->year%100,s->month,s->day,s->hour,s->minute,s->second};
+    char b[8];
     for(int i=0;i<6;++i){
-        int row=i/3,col=i%3,x=12+col*102,y=87+row*61;
-        text(x+3,y,labels[i],1,muted);
-        snprintf(b,sizeof b,i==0?"%04d":"%02d",vals[i]);
-        text(x+5,y+12,b,2,ink);
-        button(x+54,y+12,21,20,"-",false);
-        button(x+77,y+12,21,20,"+",false);
+        int row=i/3,col=i%3,x=12+col*102,y=89+row*58;
+        /* Even 12px margins and identical spacing in both rows. */
+        text(x+5,y,labels[i],1,muted);
+        snprintf(b,sizeof b,"%02d",vals[i]);
+        text(x+5,y+17,b,2,ink);
+        button(x+49,y+17,24,28,"-",false);
+        button(x+76,y+17,24,28,"+",false);
     }
-    button(72,210,176,27,"SAVE LOCAL TIME",true);
+    button(12,201,194,36,"SAVE TIME",true);
 }
 static void wifi_page(const ui_state_t *s)
 {
@@ -460,7 +478,7 @@ static void contact_page(const ui_state_t *s)
 static void look_page(const ui_state_t *s)
 {
     header("LOOK");
-    const char *names[]={"ROSE","GLACIER","HONEY","DARK"};
+    const char *names[]={"SLATE","MOSS","PAPER","BLACK"};
     center(59,names[s->theme%4],2,muted);
     button(18,89,138,45,"NEXT COLOR",false);
     button(167,89,135,45,"DARK",s->theme==3);
@@ -591,7 +609,8 @@ esp_err_t screen_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel,true));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel,
                 CONFIG_CLOCK_LCD_ROTATE_CW,CONFIG_CLOCK_LCD_MIRROR_Y));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel,true));
+    /* Inversion made the BLACK theme physically white on this panel. */
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel,false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel,true));
     strip=heap_caps_malloc(W*STRIP*2,MALLOC_CAP_DMA|MALLOC_CAP_INTERNAL);
     if(!strip)return ESP_ERR_NO_MEM;
@@ -600,7 +619,7 @@ esp_err_t screen_init(void)
     ESP_LOGI("clock_screen","320x240 landscape ST7789 i80 initialized");
     return ESP_OK;
 }
-bool screen_poll_touch(int *x,int *y)
+bool screen_poll_touch(int *x,int *y,ui_page_t page)
 {
     /* CST816S reports its native 240x320 sensor coordinates. Portrait data
        becomes landscape x=raw_y, y=239-raw_x with this board's LCD orientation.
@@ -608,12 +627,16 @@ bool screen_poll_touch(int *x,int *y)
        longer disables all subsequent touches. The 350ms limit also allows
        deliberate press-and-hold on +/- without runaway repeats. */
     static int last_x=-1,last_y=-1;
+    static int last_alarm_key=-1;
+    static int64_t held_since_us=0;
     static int64_t last_trigger_us=0;
     uint8_t reg=0x02,d[5];
     esp_err_t err=i2c_master_write_read_device(I2C_PORT,TOUCH_ADDR,
                        &reg,1,d,5,pdMS_TO_TICKS(22));
     if(err!=ESP_OK || (d[0]&0x0F)==0) {
         last_x=-1;last_y=-1;
+        last_alarm_key=-1;
+        held_since_us=0;
         return false;
     }
     int raw_x=((d[1]&0x0f)<<8)|d[2];
@@ -637,8 +660,23 @@ bool screen_poll_touch(int *x,int *y)
     if(yy>=H)yy=H-1;
     const int64_t now=esp_timer_get_time();
     int dx=xx-last_x,dy=yy-last_y;
-    if(last_x>=0 && dx*dx+dy*dy<1600 && now-last_trigger_us<350000)
-        return false;
+    if(page==UI_ALARM && yy>=180 && yy<207){
+        int key=xx<80?0:xx<160?1:xx<240?2:3;
+        if(key!=last_alarm_key || !held_since_us){
+            last_alarm_key=key;
+            held_since_us=now;
+            last_trigger_us=0;
+        }
+        int64_t held=now-held_since_us;
+        /* Quick on hold; normal discrete taps still change one increment. */
+        int64_t gap=held>=2300000?65000:held>=700000?110000:350000;
+        if(last_trigger_us && now-last_trigger_us<gap)return false;
+    }else{
+        last_alarm_key=-1;
+        held_since_us=0;
+        if(last_x>=0 && dx*dx+dy*dy<1600 &&
+           now-last_trigger_us<350000)return false;
+    }
     last_x=xx;last_y=yy;last_trigger_us=now;
     *x=xx;*y=yy;
     return true;
