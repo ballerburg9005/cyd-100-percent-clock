@@ -136,9 +136,10 @@ static uint32_t rd32(const uint8_t *b){return (uint32_t)rd16(b)|((uint32_t)rd16(
 static uint16_t note_hz(char key,bool sharp,int octave)
 {
  static const uint16_t hz[]={262,294,330,349,392,440,494,0};
- const char *pos=strchr("cdefgabp",tolower((unsigned char)key));
+ const char *keys="cdefgabp";
+ const char *pos=strchr(keys,tolower((unsigned char)key));
  if(!pos||octave<3||octave>7)return 0;
- uint32_t freq=hz[pos-"cdefgabp"];
+ uint32_t freq=hz[pos-keys];
  if(sharp&&freq)freq=freq*10595u/10000u;
  while(octave>4){freq*=2;octave--;}
  while(octave<4){freq=(freq+1)/2;octave++;}
