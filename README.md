@@ -35,11 +35,15 @@ monitor exit shortcut. If the terminal consumes both shortcuts, close the
 monitor from another terminal or simply use flash without monitor.
 
 No Wi-Fi password is compiled into the firmware. On first boot, it starts a
-10-minute setup AP automatically. You can reopen it later via **MENU → WIFI →
-PORTAL**. The screen shows the SSID,
-device-specific twelve-character password, and URL. Connect your phone to the
-AP and browse **http://192.168.4.1/**. Enter home Wi-Fi credentials, POSIX
-time-zone and a short gift message. The device restarts when you save.
+10-minute setup AP automatically and displays the setup screen without requiring
+navigation. You can reopen or restart it via **MENU → WIFI → PORTAL**. The screen
+stays bright during setup, with an AP countdown, SSID, device-specific eight-letter
+**lowercase** WPA2 password, and URL. The generated password is saved so it stays
+the same when the portal is restarted, including after reboot. The AP name is
+`100PERCENT-XXXX-SETUP` (where XXXX identifies the device), avoiding the old AP
+name cached with a different password on your phone. Connect your phone to it
+and browse **http://192.168.4.1/**. Enter home Wi-Fi credentials, POSIX time-zone
+and a short gift message. The device restarts when you save.
 Alternatively use **WIFI → SSID / PASS** for the on-screen touch keyboard;
 the portal is generally easier for long mixed-case passwords.
 
@@ -83,7 +87,10 @@ change. The display never prematurely rolls over to 100.00%.
   invalid keys are rejected without deleting the typed text. The phone/PC
   setup portal at `http://192.168.4.1/` is much faster for long keys:
   connect to the displayed temporary 10-minute WPA2 access point and paste
-  the full key there. Use only on a trusted local device.
+  the full key there. This uses AP-only mode on 2.4 GHz channel 6 to keep the
+  setup network visible; the clock temporarily disconnects from home Wi-Fi
+  until the portal closes or you save. Touching PORTAL again restarts it with
+  the same lowercase 8-character password. Use only on a trusted local device.
 - **Contact:** XMPP JID and email address configured through portal. Place a
   **24-bit uncompressed BMP named `face.bmp`** in the microSD root to show
   a local thumbnail. No personal picture/details are bundled in firmware.

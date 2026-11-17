@@ -369,18 +369,23 @@ static void edit_time(const ui_state_t *s)
 static void wifi_page(const ui_state_t *s)
 {
     header("WIFI");
-    center(51,s->wifi_connected?"ONLINE":"NOT CONNECTED",2,s->wifi_connected?accent:muted);
+    center(51,s->portal_enabled?"SETUP AP ACTIVE":
+           (s->wifi_connected?"ONLINE":"NOT CONNECTED"),2,
+           (s->portal_enabled||s->wifi_connected)?accent:muted);
     char text_buf[55];
     snprintf(text_buf,sizeof text_buf,"SSID: %.32s",s->ssid[0]?s->ssid:"(NOT SET)");
     center(78,text_buf,1,ink);
     button(18,106,133,38,"EDIT SSID",false);
     button(168,106,133,38,"EDIT PASSWORD",false);
-    button(49,156,222,37,s->portal_enabled?"PORTAL ACTIVE":"START WIFI PORTAL",s->portal_enabled);
+    button(49,156,222,37,s->portal_enabled?"RESTART WIFI PORTAL":"START WIFI PORTAL",s->portal_enabled);
     if(s->portal_enabled){
         center(197,s->portal_ssid,1,accent);
         snprintf(text_buf,sizeof text_buf,"PASSWORD: %s",s->portal_password);
         center(209,text_buf,1,ink);
-        center(224,"OPEN 192.168.4.1",1,ink);
+        snprintf(text_buf,sizeof text_buf,"192.168.4.1   %u:%02u LEFT",
+                 (unsigned)(s->portal_seconds_left/60),
+                 (unsigned)(s->portal_seconds_left%60));
+        center(224,text_buf,1,ink);
     }
 }
 static void keyboard_page(const ui_state_t *s)
