@@ -117,7 +117,12 @@ static uint32_t g_pixel_calls_count;
 #define DMA_BUFFER_UINT32 ((uint32_t*)((lldesc_t*)I2S0.out_eof_des_addr)->buf)
 
 static intr_handle_t i2s_interrupt_handle;
-static lldesc_t DRAM_ATTR dma_buffers[2] = {0};
+/* A two-descriptor 64us scanline ring is too shallow for a level-1
+ * interrupt plus scanline rasterization and prefetch; hardware observed
+ * out_dscr_err after exactly two transfers. Eight 944-byte DMA buffers
+ * give the CPU time to refill each completed scanline before reuse. */
+#define VIDEO_DMA_BUFFER_COUNT 8u
+static lldesc_t DRAM_ATTR dma_buffers[VIDEO_DMA_BUFFER_COUNT] = {0};
 static int volatile g_current_scan_line = 0;
 static volatile uint32_t g_video_dma_eof_count = 0;
 uint32_t video_dma_eof_count(void) { return g_video_dma_eof_count; }
@@ -131,10 +136,18 @@ void video_dma_log_stall_state(void)
              (unsigned)I2S0.lc_conf.out_auto_wrback,
              (unsigned)dma_buffers[0].owner,
              (unsigned)dma_buffers[1].owner);
-    ESP_LOGE(TAG, "I2S0 descriptor error=%u, dma out eof=%u, current EOF descriptor=%p",
+    ESP_LOGE(TAG, "I2S0 descriptor error=%u, dma out eof=%u, current EOF descriptor=%p, out_link_dscr=%p",
              (unsigned)I2S0.int_raw.out_dscr_err,
              (unsigned)I2S0.int_raw.out_eof,
-             (void *)I2S0.out_eof_des_addr);
+             (void *)I2S0.out_eof_des_addr,
+             (void *)I2S0.out_link_dscr);
+    for (unsigned n=0;n<VIDEO_DMA_BUFFER_COUNT;++n) {
+        const lldesc_t *d = &dma_buffers[n];
+        ESP_LOGE(TAG, "DMA[%u] desc=%p buf=%p next=%p owner=%u eof=%u len=%u size=%u",
+                 n, (const void *)d,(const void *)d->buf,(void *)d->empty,
+                 (unsigned)d->owner,(unsigned)d->eof,
+                 (unsigned)d->length,(unsigned)d->size);
+    }
 }
 /* ISR-updated monotonic counters replace non-ISR-safe FreeRTOS event groups.
  * The application currently renders asynchronously and does not wait for a frame. */
@@ -376,12 +389,16 @@ static void setup_video_dac(void)
 		assert(dma_buffers[n].buf != NULL);
         dma_buffers[n].owner = 1;
         dma_buffers[n].eof = 1;
+        dma_buffers[n].offset = 0;
+        dma_buffers[n].sosf = 0;
         dma_buffers[n].length = dma_buffer_size_bytes;
         dma_buffers[n].size = dma_buffer_size_bytes;
         dma_buffers[n].empty = (uint32_t)(n==DMA_BUFFER_COUNT-1? &dma_buffers[0] : &dma_buffers[n+1]);
     }
     I2S0.out_link.addr = (uint32_t)&dma_buffers[0];
-    ESP_LOGI(TAG, "DMA buffers configured. Buffers: %u, Size: %u bytes each", (unsigned)DMA_BUFFER_COUNT, (unsigned)dma_buffer_size_bytes);
+    ESP_LOGI(TAG, "DMA buffers configured. Buffers: %u, Size: %u bytes each, ring window %.1f ms",
+             (unsigned)DMA_BUFFER_COUNT, (unsigned)dma_buffer_size_bytes,
+             (double)DMA_BUFFER_COUNT * (double)g_video_signal.line_duration_us/1000.0);
     ESP_LOGI(TAG, "Continuous DMA: dscr_en=%u auto_wrback=%u out_eof_mode=%u",
              (unsigned)I2S0.fifo_conf.dscr_en,
              (unsigned)I2S0.lc_conf.out_auto_wrback,
