@@ -75,6 +75,11 @@ change. The display never prematurely rolls over to 100.00%.
   to clear the local-time caption. Tap ±0.01% or ±1.00%; holding a key
   accelerates repeat after 0.7s, increasing further after 2.3s. Flash
   writes are deferred until the adjustment ends. 0.01% of a day is 8.64s.
+  Both alarm and timer invert the whole display's colors for 300 ms
+  approximately every 1.1 seconds while ringing, so they are noticeable even
+  without a speaker. Any touchscreen tap silences the alert and restores the
+  selected color theme immediately; alerts also stop after one minute.
+  Idle backlight dimming is suspended during alerts.
   It uses a gentle ascending three-note tone on the onboard speaker.
 - **Kitchen timer:** `X.XX%` duration (0.01%–9.99% of one day), adjustable
   in ±0.01% or ±0.10% steps. **RESET** restores exactly five minutes
