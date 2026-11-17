@@ -175,10 +175,10 @@ static void image_preview(int x,int y,int w,int h)
     int to=top+STRIP-y;
     if(to>h)to=h;
     for(int dy=from;dy<to;dy++){
-        int sy=dy*MEDIA_BMP_SIZE/h;
+        int sy=dy*MEDIA_BMP_HEIGHT/h;
         for(int dx=0;dx<w;dx++){
-            int sx=dx*MEDIA_BMP_SIZE/w;
-            rect(x+dx,y+dy,1,1,pixels[sy*MEDIA_BMP_SIZE+sx]);
+            int sx=dx*MEDIA_BMP_WIDTH/w;
+            rect(x+dx,y+dy,1,1,pixels[sy*MEDIA_BMP_WIDTH+sx]);
         }
     }
 }
@@ -462,8 +462,8 @@ static void keyboard_page(const ui_state_t *s)
 static void contact_page(const ui_state_t *s)
 {
     header("CONTACT");
-    /* 140x140 photo fills 44% of screen width, with no gray frame.
-     * Reserve the left 150px for contact text to prevent image overlap. */
+    /* Portrait photo: 140x175 (4:5) fills the right 44% of the LCD
+     * from just beneath the header to the lower bezel, without a frame. */
     text(12,54,"A MESSAGE FROM THE MAKER",1,muted);
     text(12,79,"XMPP",2,accent);
     char tmp[50];
@@ -472,17 +472,18 @@ static void contact_page(const ui_state_t *s)
     text(12,140,"EMAIL",2,accent);
     snprintf(tmp,sizeof tmp,"%.24s",s->email[0]?s->email:"NOT CONFIGURED");
     text(12,166,tmp,1,ink);
-    if(media_has_bitmap())image_preview(168,54,140,140);
+    if(media_has_bitmap())image_preview(168,50,140,175);
     else {
-        text(172,100,"NO PHOTO",1,muted);
-        text(172,116,"FACE.BMP",1,muted);
+        text(186,100,"NO PHOTO",1,muted);
+        text(186,116,"FACE.BMP",1,muted);
     }
+    char status[25];
     if(media_is_mounted()){
-        if(media_has_bitmap())text(12,196,"SD: PHOTO OK",1,accent);
-        else text(12,196,media_photo_status(),1,muted);
-    }else text(12,196,media_sd_status(),1,muted);
-    text(12,225,"DETAILS VIA WIFI PORTAL",1,muted);
-    button(206,201,102,36,"RELOAD",false);
+        snprintf(status,sizeof status,"%s",
+                 media_has_bitmap()?"SD: PHOTO OK":media_photo_status());
+    }else snprintf(status,sizeof status,"%.24s",media_sd_status());
+    text(12,189,status,1,media_has_bitmap()?accent:muted);
+    button(12,204,142,33,"RELOAD SD",false);
 }
 static void look_page(const ui_state_t *s)
 {
