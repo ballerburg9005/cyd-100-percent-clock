@@ -56,6 +56,7 @@ static uint32_t frame_counter;
 static int last_anim_tick;
 static int64_t next_video_diagnostic_us;
 static uint32_t previous_video_irq_count;
+static bool video_stall_reported;
 static inline void dot(int x,int y,bool white)
 {
  if(x<0||x>=TV_WIDTH||y<0||y>=TV_HEIGHT)return;
@@ -146,7 +147,7 @@ bool tv_video_start(const char *filename,bool bmp)
  if(!pixels){ESP_LOGE(TV_TAG,"No composite framebuffer");video_stop();return false;}
  live=true;frame_counter=0;last_anim_tick=-1;
  next_video_diagnostic_us=esp_timer_get_time()+1000000LL;
- previous_video_irq_count=0;
+ previous_video_irq_count=0;video_stall_reported=false;
  tv_frame(filename?filename:"");
  ESP_LOGW(TV_TAG,"Composite initialized on GPIO25; checking I2S DMA activity next. LCD frozen.");
  ESP_LOGW(TV_TAG,"GPIO26 DAC audio may be overridden by global digital-DAC selection");
@@ -164,8 +165,9 @@ void tv_video_tick(int64_t now_us)
   uint32_t delta=irq_count-previous_video_irq_count;
   if(delta==0){
    ESP_LOGE(TV_TAG,"COMPOSITE DMA STALLED: 0 I2S0 EOF interrupts during last second; no video scanlines");
-   if(irq_count==0 || previous_video_irq_count!=irq_count)video_dma_log_stall_state();
+   if(!video_stall_reported){video_dma_log_stall_state();video_stall_reported=true;}
   }else{
+   video_stall_reported=false;
    ESP_LOGI(TV_TAG,"Composite DMA active: %lu scanlines/s (I2S EOF), total=%lu; TV sync/voltage still unverified",
             (unsigned long)delta,(unsigned long)irq_count);
   }
