@@ -131,6 +131,7 @@ static void load(void)
     if(nvs_open("clock",NVS_READONLY,&h)!=ESP_OK)return;
     size_t n=sizeof(ui.ssid);nvs_get_str(h,"ssid",ui.ssid,&n);
     n=sizeof(ui.password);nvs_get_str(h,"pass",ui.password,&n);
+    n=sizeof(ui.portal_password);nvs_get_str(h,"apkey",ui.portal_password,&n);
     n=sizeof(tz);nvs_get_str(h,"tz",tz,&n);
     n=sizeof(ui.email);nvs_get_str(h,"email",ui.email,&n);
     n=sizeof(ui.xmpp);nvs_get_str(h,"xmpp",ui.xmpp,&n);
@@ -206,7 +207,8 @@ static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data)
         esp_wifi_connect();
     if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) {
         wifi_connected=false;
-        if(ui.ssid[0])esp_wifi_connect();
+        /* The setup portal is AP-only; do not reconnect the station here. */
+        if(ui.ssid[0] && !ui.portal_enabled)esp_wifi_connect();
     }
     if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP) {
         wifi_connected=true;
@@ -299,7 +301,7 @@ static esp_err_t web_home(httpd_req_t *req)
        "<label>Email address<input name=email type=email maxlength=64></label>"
        "<p>Place face.bmp (24-bit BMP) at the root of a microSD for the contact photo.</p>"
        "<button>Save and restart</button></form>"
-       "<p>Clock runs offline too: MENU &gt; SET TIME. This setup AP closes after 10 minutes.</p>";
+       "<p>Clock runs offline too: MENU &gt; SET TIME. This setup AP stays available for 10 minutes.</p>";
     httpd_resp_set_type(req,"text/html; charset=utf-8");
     return httpd_resp_sendstr(req,html);
 }
@@ -336,59 +338,86 @@ static esp_err_t web_save(httpd_req_t *req)
     xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
     return ESP_OK;
 }
+/* WPA2 requires at least 8 characters. Reuse a random device-specific
+ * lowercase key after portal restarts so phones can reconnect normally. */
+static void ensure_portal_password(void)
+{
+    static const char letters[]="abcdefghjkmnpqrstuvwxyz";
+    if(strlen(ui.portal_password)==8 &&
+       strspn(ui.portal_password,letters)==8)return;
+    for(size_t i=0;i<8;++i)
+        ui.portal_password[i]=letters[esp_random()%(sizeof letters-1)];
+    ui.portal_password[8]=0;
+    nvs_handle_t h;
+    if(nvs_open("clock",NVS_READWRITE,&h)==ESP_OK){
+        if(nvs_set_str(h,"apkey",ui.portal_password)==ESP_OK)
+            nvs_commit(h);
+        nvs_close(h);
+    }
+}
 static void enable_portal(void)
 {
-    if(ui.portal_enabled){
-        portal_deadline=esp_timer_get_time()+PORTAL_SECONDS*1000000LL;
-        return;
-    }
+    /* Restart even when UI says ACTIVE; AP beacons may have disappeared.
+     * Keep the exact same password across restarts and reboots. */
+    ensure_portal_password();
     wifi_config_t ap={0};
     uint8_t mac[6]={0};
     esp_read_mac(mac,ESP_MAC_WIFI_STA);
+    /* New SSID suffix avoids old 12-character credentials cached by phones. */
     snprintf((char *)ap.ap.ssid,sizeof ap.ap.ssid,
-             "100PERCENT-%02X%02X",mac[4],mac[5]);
+             "100PERCENT-%02X%02X-SETUP",mac[4],mac[5]);
     snprintf(ui.portal_ssid,sizeof ui.portal_ssid,"%s",(char *)ap.ap.ssid);
-    /* New random WPA2 key on each boot, visible on the clock itself. */
-    static const char abc[]="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-    for(unsigned i=0;i<12;++i)
-        ui.portal_password[i]=abc[esp_random()%(sizeof abc-1)];
-    ui.portal_password[12]=0;
     snprintf((char *)ap.ap.password,sizeof ap.ap.password,"%s",ui.portal_password);
     ap.ap.ssid_len=strlen((char *)ap.ap.ssid);
     ap.ap.channel=6;
     ap.ap.max_connection=2;
     ap.ap.authmode=WIFI_AUTH_WPA2_PSK;
-    if(wifi_started)ESP_ERROR_CHECK(esp_wifi_stop());
-    ESP_ERROR_CHECK(esp_wifi_set_mode(ui.ssid[0]?WIFI_MODE_APSTA:WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP,&ap));
-    ESP_ERROR_CHECK(esp_wifi_start());wifi_started=true;
-    if(ui.ssid[0])esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-    if(!web_server){
-        httpd_config_t cfg=HTTPD_DEFAULT_CONFIG();
-        cfg.max_uri_handlers=4;
-        if(httpd_start(&web_server,&cfg)==ESP_OK){
-            httpd_uri_t get={.uri="/",.method=HTTP_GET,.handler=web_home,.user_ctx=NULL};
-            httpd_uri_t post={.uri="/save",.method=HTTP_POST,.handler=web_save,.user_ctx=NULL};
-            httpd_register_uri_handler(web_server,&get);
-            httpd_register_uri_handler(web_server,&post);
-        }
-    }
+
+    /* APSTA inherits the home router's channel and can become hard to find.
+     * Setup needs no internet, so use AP-only on channel 6 until it closes. */
     ui.portal_enabled=true;
+    wifi_connected=false;
+    if(web_server){httpd_stop(web_server);web_server=NULL;}
+    if(wifi_started){
+        ESP_ERROR_CHECK(esp_wifi_stop());
+        wifi_started=false;
+    }
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP,&ap));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    wifi_started=true;
+
+    httpd_config_t cfg=HTTPD_DEFAULT_CONFIG();
+    cfg.max_uri_handlers=4;
+    if(httpd_start(&web_server,&cfg)==ESP_OK){
+        httpd_uri_t get={.uri="/",.method=HTTP_GET,.handler=web_home,.user_ctx=NULL};
+        httpd_uri_t post={.uri="/save",.method=HTTP_POST,.handler=web_save,.user_ctx=NULL};
+        httpd_register_uri_handler(web_server,&get);
+        httpd_register_uri_handler(web_server,&post);
+    } else ESP_LOGE(TAG,"Setup web server could not start");
+
     portal_deadline=esp_timer_get_time()+PORTAL_SECONDS*1000000LL;
-    ESP_LOGI(TAG,"Provision AP 100PERCENT-%02X%02X, URL http://192.168.4.1/",mac[4],mac[5]);
+    ui.portal_seconds_left=PORTAL_SECONDS;
+    ESP_LOGI(TAG,"Provision AP %s (channel 6), URL http://192.168.4.1/",
+             ui.portal_ssid);
 }
 static void disable_portal(void)
 {
     if(!ui.portal_enabled)return;
     if(web_server){httpd_stop(web_server);web_server=NULL;}
-    if(wifi_started)esp_wifi_stop();
-    if(ui.ssid[0]){
-        esp_wifi_set_mode(WIFI_MODE_STA);
-        esp_wifi_start();wifi_started=true;
-        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-    } else {esp_wifi_set_mode(WIFI_MODE_NULL);wifi_started=false;}
+    if(wifi_started){
+        ESP_ERROR_CHECK(esp_wifi_stop());
+        wifi_started=false;
+    }
     ui.portal_enabled=false;
-    ui.portal_password[0]=0;
+    ui.portal_seconds_left=0;
+    if(ui.ssid[0]){
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        ESP_ERROR_CHECK(esp_wifi_start());
+        wifi_started=true;
+        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    } else ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
+    /* Password is retained in NVS for the next setup session. */
     ui.portal_ssid[0]=0;
 }
 static void init_time_editor(void)
@@ -622,7 +651,8 @@ void app_main(void)
     int last_brightness=-1;
     int64_t touch_feedback_deadline=0;
     bool last_connected=false,last_portal=false;
-    ui.page=UI_HOME;
+    /* First boot should immediately show the AP credentials. */
+    ui.page=ui.portal_enabled?UI_WIFI:UI_HOME;
     screen_draw(&ui);
     while(true){
         int64_t now_us=esp_timer_get_time();
@@ -641,6 +671,12 @@ void app_main(void)
         }
         if(ui.portal_enabled && now_us>portal_deadline){
             disable_portal();draw=true;
+        }else if(ui.portal_enabled){
+            uint16_t left=(uint16_t)((portal_deadline-now_us+999999LL)/1000000LL);
+            if(left!=ui.portal_seconds_left){
+                ui.portal_seconds_left=left;
+                if(ui.page==UI_WIFI)draw=true;
+            }
         }
         time_t epoch=time(NULL);
         ui.time_valid=epoch>1700000000;
@@ -696,7 +732,8 @@ void app_main(void)
         }
         ui.wifi_connected=wifi_connected;
         int target_brightness=ui.brightness;
-        if(now_us-last_touch_us>40000000LL){
+        /* Keep the portal credentials legible throughout setup. */
+        if(!ui.portal_enabled && now_us-last_touch_us>40000000LL){
             target_brightness=(target_brightness*(ui.theme==3?12:25))/100;
             if(target_brightness<3)target_brightness=3;
         }
