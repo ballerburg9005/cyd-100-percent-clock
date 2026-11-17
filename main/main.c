@@ -248,6 +248,19 @@ static void reboot_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(1200));
     esp_restart();
 }
+/* WPA2 passphrases are 8..63 characters; exactly 64 requires HEX PSK.
+   An empty password is permitted for an open access point. */
+static bool valid_wifi_password(const char *pass)
+{
+    size_t n=strlen(pass);
+    if(n==0)return true;
+    if(n>=8 && n<=63)return true;
+    if(n!=64)return false;
+    for(size_t i=0;i<n;++i){
+        if(!isxdigit((unsigned char)pass[i]))return false;
+    }
+    return true;
+}
 static int fromhex(int c)
 {
     if(c>='0'&&c<='9')return c-'0';
@@ -312,6 +325,11 @@ static esp_err_t web_save(httpd_req_t *req)
         else if(strcmp(part,"tz")==0)decode(tz,sizeof tz,eq);
         else if(strcmp(part,"xmpp")==0)decode(ui.xmpp,sizeof ui.xmpp,eq);
         else if(strcmp(part,"email")==0)decode(ui.email,sizeof ui.email,eq);
+    }
+    if(!valid_wifi_password(ui.password)){
+        httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,
+            "Wi-Fi password must be 8-63 characters or exactly 64 hexadecimal digits.");
+        return ESP_FAIL;
     }
     store();
     httpd_resp_sendstr(req,"<h2>Saved. Restarting clock.</h2>");
@@ -419,7 +437,9 @@ static void silence(void)
 }
 static void start_keyboard(bool password)
 {
-    ui.editing_password=password;ui.keyboard_lower=false;
+    ui.editing_password=password;
+    ui.keyboard_lower=false;
+    ui.keyboard_error=false;
     snprintf(ui.keyboard_value,sizeof ui.keyboard_value,"%s",password?ui.password:ui.ssid);
     ui.page=UI_KEYBOARD;
 }
@@ -530,6 +550,7 @@ static void touch(int x,int y)
                 size_t n=strlen(ui.keyboard_value);
                 size_t max=ui.editing_password?64:32;
                 if(n<max){
+                    ui.keyboard_error=false;
                     char c="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-@!?"[ix];
                     if(ui.keyboard_lower&&isalpha((unsigned char)c))
                         c=(char)tolower((unsigned char)c);
@@ -541,12 +562,17 @@ static void touch(int x,int y)
             if(x<112){
                 size_t n=strlen(ui.keyboard_value);
                 if(n)ui.keyboard_value[n-1]=0;
+                ui.keyboard_error=false;
             }else if(x<209){
                 ui.keyboard_lower=!ui.keyboard_lower;
             }else{
-                if(ui.editing_password)
+                if(ui.editing_password){
+                    if(!valid_wifi_password(ui.keyboard_value)){
+                        ui.keyboard_error=true;
+                        return; /* Preserve the entire partially typed key. */
+                    }
                     snprintf(ui.password,sizeof ui.password,"%s",ui.keyboard_value);
-                else
+                }else
                     snprintf(ui.ssid,sizeof ui.ssid,"%.32s",ui.keyboard_value);
                 store();
                 ui.page=UI_WIFI;
