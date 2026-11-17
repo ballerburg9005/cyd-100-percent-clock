@@ -32,7 +32,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "esp32/rom/gpio.h"
 #include "esp32/rom/lldesc.h"
 #include "esp_private/periph_ctrl.h"
-#include "driver/dac.h"
+/* Never link driver/dac.h: its legacy global constructor aborts immediately
+ * when main/audio.c links ESP-IDF 5.4's new dac_oneshot driver.
+ * Use the same v5.4 HAL calls as the new driver, on DAC_CHAN_0 only. */
+#include "driver/rtc_io.h"
+#include "hal/dac_ll.h"
+#include "hal/dac_types.h"
 #include "driver/gpio.h"
 #include "driver/i2s.h"
 #include "math.h"
@@ -344,11 +349,16 @@ static void setup_video_dac(void)
 
     set_dac_frequency();
 
-    ESP_ERROR_CHECK(dac_output_enable(DAC_CHANNEL_1));
-    ESP_LOGI(TAG, "DAC output on GPIO25 (DAC_CHANNEL_1)");
-
-    ESP_ERROR_CHECK(dac_i2s_enable());
-    ESP_LOGD(TAG, "DAC I²S enabled");
+    /* GPIO25 is DAC_CHAN_0 in modern IDF; GPIO26/DAC_CHAN_1 belongs
+     * to the MP3 audio player and must remain powered and untouched. */
+    ESP_ERROR_CHECK(rtc_gpio_init(GPIO_NUM_25));
+    ESP_ERROR_CHECK(rtc_gpio_set_direction(GPIO_NUM_25, RTC_GPIO_MODE_DISABLED));
+    ESP_ERROR_CHECK(rtc_gpio_pullup_dis(GPIO_NUM_25));
+    ESP_ERROR_CHECK(rtc_gpio_pulldown_dis(GPIO_NUM_25));
+    dac_ll_power_on(DAC_CHAN_0);
+    dac_ll_rtc_sync_by_adc(false);
+    dac_ll_digi_enable_dma(true);
+    ESP_LOGI(TAG, "DAC1 composite DMA on GPIO25; DAC2 GPIO26 reserved for audio");
 
     // start transmission
     I2S0.conf.tx_start = 1;
@@ -382,8 +392,9 @@ void video_stop(void)
 
     //disable i2s DAC
     ESP_LOGD(TAG, "Disable DAC");
-    dac_i2s_disable();
-    dac_output_disable(DAC_CHANNEL_1);
+    dac_ll_digi_enable_dma(false);
+    dac_ll_power_down(DAC_CHAN_0);
+    ESP_ERROR_CHECK(rtc_gpio_deinit(GPIO_NUM_25));
     
     // free DMA buffers 
     const size_t DMA_BUFFER_COUNT = sizeof(dma_buffers)/sizeof(lldesc_t);
