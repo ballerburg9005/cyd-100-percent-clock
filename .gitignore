@@ -7,3 +7,7 @@ managed_components/
 # Device provisioning credentials live in local sdkconfig/NVS, not Git
 *.log
 .DS_Store
+
+# Local-only real contact details; never push these to the public repository.
+# contact_details.txt is a tracked FAKE/placeholder file, not private.
+contact_details.private.txt

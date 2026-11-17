@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include "screen.h"
 #include "media.h"
+#include "contact_defaults.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
 #include "driver/i2c.h"
@@ -123,6 +124,8 @@ static void store(void)
     nvs_set_str(h,"tz",tz);
     nvs_set_str(h,"email",ui.email);
     nvs_set_str(h,"xmpp",ui.xmpp);
+    nvs_set_str(h,"sms",ui.sms);
+    nvs_set_u32(h,"ct_hash",CLOCK_CONTACT_HASH);
     nvs_set_u16(h,"abp",ui.alarm_bp);
     nvs_set_u16(h,"tbp",ui.timer_bp);
     nvs_set_u32(h,"timer_ms",ui.timer_duration_ms);
@@ -142,6 +145,11 @@ static void load(void)
     ui.timer_duration_ms=300000; /* exactly 5 minutes */
     ui.alarm_bp=2917; /* ~07:00 */
     ui.use_ntp=true;
+    /* The built-in defaults exist even if NVS has never been initialized.
+     * The private override is selected at LOCAL build time, not at runtime. */
+    snprintf(ui.xmpp,sizeof ui.xmpp,"%s",CLOCK_CONTACT_XMPP);
+    snprintf(ui.email,sizeof ui.email,"%s",CLOCK_CONTACT_EMAIL);
+    snprintf(ui.sms,sizeof ui.sms,"%s",CLOCK_CONTACT_SMS);
     nvs_handle_t h;
     if(nvs_open("clock",NVS_READONLY,&h)!=ESP_OK)return;
     size_t n=sizeof(ui.ssid);nvs_get_str(h,"ssid",ui.ssid,&n);
@@ -150,6 +158,9 @@ static void load(void)
     n=sizeof(tz);nvs_get_str(h,"tz",tz,&n);
     n=sizeof(ui.email);nvs_get_str(h,"email",ui.email,&n);
     n=sizeof(ui.xmpp);nvs_get_str(h,"xmpp",ui.xmpp,&n);
+    n=sizeof(ui.sms);nvs_get_str(h,"sms",ui.sms,&n);
+    uint32_t previous_contact_hash=0;
+    nvs_get_u32(h,"ct_hash",&previous_contact_hash);
     if(nvs_get_u16(h,"abp",&ui.alarm_bp)!=ESP_OK){
         uint8_t h_old=7,m_old=0;
         nvs_get_u8(h,"ah",&h_old);
@@ -169,6 +180,23 @@ static void load(void)
     nvs_get_u8(h,"brightness",&ui.brightness);
     nvs_get_u8(h,"theme",&ui.theme);
     nvs_close(h);
+    /* On a changed firmware contact file, apply its defaults exactly once.
+     * Later edits made in the Wi-Fi portal remain valid until the contact
+     * source file changes again in another build. */
+    if(previous_contact_hash!=CLOCK_CONTACT_HASH){
+        snprintf(ui.xmpp,sizeof ui.xmpp,"%s",CLOCK_CONTACT_XMPP);
+        snprintf(ui.email,sizeof ui.email,"%s",CLOCK_CONTACT_EMAIL);
+        snprintf(ui.sms,sizeof ui.sms,"%s",CLOCK_CONTACT_SMS);
+        nvs_handle_t contacts;
+        if(nvs_open("clock",NVS_READWRITE,&contacts)==ESP_OK){
+            nvs_set_str(contacts,"xmpp",ui.xmpp);
+            nvs_set_str(contacts,"email",ui.email);
+            nvs_set_str(contacts,"sms",ui.sms);
+            nvs_set_u32(contacts,"ct_hash",CLOCK_CONTACT_HASH);
+            nvs_commit(contacts);
+            nvs_close(contacts);
+        }
+    }
     if(ui.brightness<3||ui.brightness>100)ui.brightness=45;
     ui.theme%=4;
     if(ui.alarm_bp>9999)ui.alarm_bp=2917;
@@ -393,7 +421,8 @@ static esp_err_t web_home(httpd_req_t *req)
        "<label>Time zone (POSIX)<input name=tz value='CET-1CEST,M3.5.0,M10.5.0/3' maxlength=79></label>"
        "<label>XMPP JID<input name=xmpp maxlength=64 placeholder='user@example.org'></label>"
        "<label>Email address<input name=email type=email maxlength=64></label>"
-       "<p>Place face.bmp (24-bit BMP) at the root of a microSD for the contact photo.</p>"
+       "<label>SMS number<input name=sms maxlength=64></label>"
+       "<p>CONTACT photo is built into the firmware from face.bmp.</p>"
        "<button>Save and restart</button></form>"
        "<p>Clock runs offline too: MENU &gt; SET TIME. This setup AP stays available for 10 minutes.</p>";
     httpd_resp_set_type(req,"text/html; charset=utf-8");
@@ -421,6 +450,7 @@ static esp_err_t web_save(httpd_req_t *req)
         else if(strcmp(part,"tz")==0)decode(tz,sizeof tz,eq);
         else if(strcmp(part,"xmpp")==0)decode(ui.xmpp,sizeof ui.xmpp,eq);
         else if(strcmp(part,"email")==0)decode(ui.email,sizeof ui.email,eq);
+        else if(strcmp(part,"sms")==0)decode(ui.sms,sizeof ui.sms,eq);
     }
     if(!valid_wifi_password(ui.password)){
         httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,
@@ -656,12 +686,6 @@ static void touch(int x,int y)
             else if(col==1){ui.page=UI_CONTACT;media_photo();}
             else ui.page=UI_LOOK;
         }else if(y>=188&&y<239)open_files();
-    }else if(ui.page==UI_CONTACT){
-        if(x>=12 && x<154 && y>=204 && y<238){
-            media_refresh();
-            ui.sd_ready=media_is_mounted();
-            media_photo();
-        }
     }else if(ui.page==UI_ALARM){
         if(y>=180&&y<207){
             int col=x<80?0:x<160?1:x<240?2:3;
@@ -837,7 +861,6 @@ void app_main(void)
     int last_timer_sec=-1;
     int last_brightness=-1;
     int64_t touch_feedback_deadline=0;
-    int64_t next_photo_retry_us=0;
     bool last_connected=false,last_portal=false,last_ntp_synced=false;
     bool last_connecting=false,last_scanning=false;
     uint16_t last_wifi_error=0;
@@ -858,15 +881,6 @@ void app_main(void)
         }
         if(ui.touch_feedback && now_us>=touch_feedback_deadline){
             ui.touch_feedback=false;
-            draw=true;
-        }
-        /* The photo loader formerly ran only on entry to CONTACT. A card
-         * inserted afterward never appeared. Retry periodically while this
-         * page is visible; the mount itself has a 3s backoff. */
-        if(ui.page==UI_CONTACT && !media_has_bitmap() &&
-           now_us>=next_photo_retry_us){
-            media_photo();
-            next_photo_retry_us=now_us+3000000LL;
             draw=true;
         }
         if(alarm_adjust_dirty && now_us-last_alarm_adjust_us>=450000LL){

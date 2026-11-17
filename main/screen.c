@@ -462,28 +462,19 @@ static void keyboard_page(const ui_state_t *s)
 static void contact_page(const ui_state_t *s)
 {
     header("CONTACT");
-    /* 240px LCD height - 50px photo top = 190px exact available height.
-     * Draw right to row 239, with no bottom border or artificial margin. */
-    text(12,54,"A MESSAGE FROM THE MAKER",1,muted);
-    text(12,79,"XMPP",2,accent);
-    char tmp[50];
+    text(12,54,"100% CLOCK MADE BY",1,muted);
+    text(12,80,"XMPP",2,accent);
+    char tmp[65];
     snprintf(tmp,sizeof tmp,"%.24s",s->xmpp[0]?s->xmpp:"NOT CONFIGURED");
-    text(12,105,tmp,1,ink);
-    text(12,140,"EMAIL",2,accent);
+    text(12,103,tmp,1,ink);
+    text(12,128,"EMAIL",2,accent);
     snprintf(tmp,sizeof tmp,"%.24s",s->email[0]?s->email:"NOT CONFIGURED");
-    text(12,166,tmp,1,ink);
-    if(media_has_bitmap())image_preview(168,50,140,190);
-    else {
-        text(186,100,"NO PHOTO",1,muted);
-        text(186,116,"FACE.BMP",1,muted);
-    }
-    char status[25];
-    if(media_is_mounted()){
-        snprintf(status,sizeof status,"%s",
-                 media_has_bitmap()?"SD: PHOTO OK":media_photo_status());
-    }else snprintf(status,sizeof status,"%.24s",media_sd_status());
-    text(12,189,status,1,media_has_bitmap()?accent:muted);
-    button(12,204,142,33,"RELOAD SD",false);
+    text(12,151,tmp,1,ink);
+    text(12,176,"SMS",2,accent);
+    snprintf(tmp,sizeof tmp,"%.24s",s->sms[0]?s->sms:"NOT CONFIGURED");
+    text(12,199,tmp,1,ink);
+    /* Right margin 12px; deliberate 10px lower margin and no frame. */
+    if(media_has_bitmap())image_preview(168,50,140,180);
 }
 static void look_page(const ui_state_t *s)
 {

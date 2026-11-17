@@ -26,7 +26,7 @@ typedef struct {
     uint32_t timer_duration_ms; /* exact 300000ms default, not rounded 0.35% */
     bool use_ntp;
     int timer_seconds_left;
-    char ssid[33], password[65], email[65], xmpp[65], portal_password[16], portal_ssid[33];
+    char ssid[33], password[65], email[65], xmpp[65], sms[65], portal_password[16], portal_ssid[33];
     char file_name[80], file_preview[240]; bool sd_ready; int file_index;
     bool editing_password, keyboard_lower, keyboard_error;
     bool touch_feedback;

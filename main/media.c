@@ -1,6 +1,7 @@
 /* Local microSD root browser and contact photo. Decode uncompressed
  * 24-bit BMP, and common 32-bit GIMP exports. No JPEG decoder yet. */
 #include "media.h"
+#include "embedded_face.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <stdio.h>
@@ -183,9 +184,8 @@ static bool bmp_read(const char *path)
         snprintf(photo_status,sizeof photo_status,"OUT OF MEMORY");
         fclose(f);return false;
     }
-    /* Preserve aspect ratio: center-crop to the contact window's
-     * approximately 140:185 portrait aspect before resampling. A BMP
-     * already at this ratio is displayed without cropping. */
+    /* Preserve aspect ratio: center-crop to the thumbnail's portrait
+     * 128:165 aspect. CONTACT's built-in image uses this same format. */
     int crop_w=w,crop_h=abs_h;
     if((int64_t)w*MEDIA_BMP_HEIGHT>(int64_t)abs_h*MEDIA_BMP_WIDTH){
         crop_w=(int)((int64_t)abs_h*MEDIA_BMP_WIDTH/MEDIA_BMP_HEIGHT);
@@ -245,12 +245,12 @@ bool media_open(char *preview,size_t len)
 }
 bool media_photo(void)
 {
-    if(!media_mount()){
-        snprintf(photo_status,sizeof photo_status,"SD NOT MOUNTED");
-        return false;
-    }
-    /* The maker's image is explicit and local; never bundle personal photos. */
-    return bmp_read("/sd/face.bmp");
+    /* Compiled into the firmware from root face.bmp. CONTACT does not
+     * attempt to access a removable SD card. TF FILES still works as usual. */
+    memcpy(bitmap,clock_builtin_face,sizeof bitmap);
+    image_ready=true;
+    snprintf(photo_status,sizeof photo_status,"BUILT-IN PHOTO");
+    return true;
 }
 const uint16_t *media_bitmap(void) {return bitmap;}
 bool media_has_bitmap(void) {return image_ready;}
