@@ -2,7 +2,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define AUDIO_BUILTIN_COUNT 4
+#define AUDIO_BUILTIN_COUNT 5
 #define AUDIO_KEY_MAX 132
 
 /* Sound keys persisted to NVS: "builtin:0" .. "builtin:3",
