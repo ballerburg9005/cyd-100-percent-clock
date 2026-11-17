@@ -66,17 +66,16 @@ change. The display never prematurely rolls over to 100.00%.
 
 ### Controls in the landscape firmware
 
-- **Clock:** taller, more closely spaced `XX.XX` numerals with a smaller %
-  symbol and corrected decimal point; HH:MM, full weekday and ISO date
-  `YYYY-MM-DD` below. The day progress bar is 11 pixels tall.
+- **Clock:** near-full-width `XX.XX%` numerals, with extra breathing room
+  around the decimal point and percent sign. Date, HH:MM and weekday share
+  one line (e.g. `2026-11-17 01:24 Tuesday`). The progress bar remains 11px.
 - **Alarm:** local daily time shown as `XX.XX%`; adjust by ±0.01% or ±1.00%,
   toggle on/off. 0.01% of a day is 8.64 seconds. It uses a gentle ascending
   three-note tone on the onboard speaker. Alarm resolution is 8.64 s.
 - **Kitchen timer:** `X.XX%` duration (0.01%–9.99% of one day), adjustable
-  in ±0.01% or ±0.10% steps. **RESET** restores exactly 05:00 (300 seconds),
-  shown as approximately `0.35%`. Internally the starting preset is exact,
-  not the rounded decimal amount. Small MM:SS is shown below the big percent.
-  The countdown runs from monotonic microseconds.
+  in ±0.01% or ±0.10% steps. **RESET** restores exactly five minutes
+  (300 seconds), shown as approximately `0.35%`. The underlying timer stays
+  exact. The display is decimal only: no redundant MM:SS or explanatory row.
 - **Set Time:** `[X] USE NTP` checkbox defaults ON; manual date/time controls
   are hidden while NTP is selected. Uncheck for offline time setting.
   DS3231, when fitted, backs up UTC independently of display time zone.
@@ -84,7 +83,9 @@ change. The display never prematurely rolls over to 100.00%.
   plaintext input and character count, DELETE on the left, SHIFT in the
   middle and SAVE on the right. Supports 8–63-character WPA2 passphrases
   or **exactly 64 hexadecimal characters** (the WPA2 raw PSK format);
-  invalid keys are rejected without deleting the typed text. The phone/PC
+  invalid keys are rejected without deleting the typed text.
+  **WIFI → SCAN** lists nearby SSIDs with their exact case, so users need not
+  guess capitalization; manual typing is still available. The phone/PC
   setup portal at `http://192.168.4.1/` is much faster for long keys:
   connect to the displayed temporary 10-minute WPA2 access point and paste
   the full key there. This uses AP-only mode on 2.4 GHz channel 6 to keep the
@@ -150,8 +151,11 @@ before using the battery, and confirm cell protection and charging-current
 compatibility. The DS3231's button-cell backup is **separate**.
 
 The LCD backlight + Wi-Fi consume substantially more power than the RTC.
-The firmware dims the backlight after inactivity and enables ESP32 Wi-Fi
-modem sleep, but an always-visible LCD on a ~2500 mAh cell is generally an
+The firmware dims the backlight after inactivity and **turns Wi-Fi fully off**
+between five-minute NTP synchronizations, with a 35-second maximum active
+attempt if the router/time server cannot be reached. The clock counts time
+locally between polls. Wi-Fi scan and setup AP are explicit exceptions.
+An always-visible LCD on a ~2500 mAh cell is generally an
 **hours-to-day** project rather than weeks. Actual runtime must be measured.
 USB power is the realistic mode for permanent full-brightness operation.
 
