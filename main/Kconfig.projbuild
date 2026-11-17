@@ -8,6 +8,13 @@ menu "100 Percent Clock board adjustments"
             The LCD retains a frozen image while TV output is active.
             Press STOP or BACK (touch still works) to restore LCD.
             Requires an external composite input; keep GND common.
+    config CLOCK_COMPOSITE_NTSC
+        bool "Experimental composite television uses NTSC (default PAL)"
+        default n
+        depends on CLOCK_COMPOSITE_TF_TEST
+        help
+            Set for televisions that cannot accept PAL. NTSC 320x240
+            instead of PAL 320x256. Most European televisions support PAL.
     config CLOCK_LCD_ROTATE_CW
         bool "Use S022C clockwise landscape mapping for LCD and touch"
         default y
