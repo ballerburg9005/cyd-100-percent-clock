@@ -168,7 +168,7 @@ change. The display never prematurely rolls over to 100.00%.
   connect to the displayed temporary 10-minute WPA2 access point and paste
   the full key there. This uses AP-only mode on 2.4 GHz channel 6 to keep the
   setup network visible; the clock temporarily disconnects from home Wi-Fi
-  until the portal closes or you save. Touching PORTAL again restarts it with
+  until the portal closes or you save. Touching STOP WIFI PORTAL turns the setup access point and its web server off immediately; touching START WIFI PORTAL starts it again with
   the same lowercase 8-character password. Use only on a trusted local device.
 - **Contact:** shows **100% CLOCK MADE BY**, XMPP, email and SMS
   information, plus a **140×180-pixel borderless portrait** (right margin
