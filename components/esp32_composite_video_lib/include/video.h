@@ -169,6 +169,9 @@ void video_stop(void);
 uint32_t video_dma_eof_count(void);
 /* Log hardware state if the continuous scanline generator stalls. */
 void video_dma_log_stall_state(void);
+/* Nonblocking first-preview GPIO25 DAC voltage test; call from the UI loop. */
+void video_dac_selftest_tick(int64_t now_us);
+bool video_dac_selftest_active(void);
 
 #if CONFIG_VIDEO_DIAG_ENABLE_INTERRUPT_STATS
 void video_show_stats(void);
