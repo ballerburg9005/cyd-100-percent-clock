@@ -416,7 +416,7 @@ static void wifi_page(const ui_state_t *s)
     button(18,106,84,38,"SCAN",false);
     button(110,106,94,38,"EDIT SSID",false);
     button(212,106,90,38,"EDIT PASS",false);
-    button(49,156,222,37,s->portal_enabled?"RESTART WIFI PORTAL":"START WIFI PORTAL",s->portal_enabled);
+    button(49,156,222,37,s->portal_enabled?"STOP WIFI PORTAL":"START WIFI PORTAL",s->portal_enabled);
     if(s->portal_enabled){
         center(197,s->portal_ssid,1,accent);
         snprintf(text_buf,sizeof text_buf,"PASSWORD: %s",s->portal_password);
