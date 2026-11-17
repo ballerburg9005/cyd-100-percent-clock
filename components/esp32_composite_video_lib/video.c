@@ -125,8 +125,44 @@ static intr_handle_t i2s_interrupt_handle;
 static lldesc_t DRAM_ATTR dma_buffers[VIDEO_DMA_BUFFER_COUNT] = {0};
 static int volatile g_current_scan_line = 0;
 static volatile uint32_t g_video_dma_eof_count = 0;
-/* Temporary board-level analog test: performed only on first video start. */
+/* Nonblocking GPIO25 analog diagnostics: the touch UI remains responsive.
+ * The test is armed on the first composite preview after each reboot. */
 static bool g_gpio25_dac_selftest_done = false;
+static bool g_gpio25_dac_selftest_active = false;
+static int g_gpio25_dac_selftest_phase = -2;
+static int64_t g_gpio25_dac_selftest_started_us;
+bool video_dac_selftest_active(void) { return g_gpio25_dac_selftest_active; }
+void video_dac_selftest_tick(int64_t now_us)
+{
+    if (!g_gpio25_dac_selftest_active) return;
+    /* Five seconds to put the probe down after pressing the touchscreen,
+     * followed by fifteen seconds at each voltage level. */
+    if (g_gpio25_dac_selftest_phase == -2) {
+        g_gpio25_dac_selftest_started_us = now_us;
+        dac_ll_digi_enable_dma(false);
+        dac_ll_update_output_value(DAC_CHAN_0, 128);
+        g_gpio25_dac_selftest_phase = -1;
+        ESP_LOGW(TAG, "GPIO25 DAC SELFTEST: 5-second preparation delay; probe GPIO25 and GND. Video intentionally suspended.");
+        return;
+    }
+    const int64_t elapsed = now_us - g_gpio25_dac_selftest_started_us;
+    const int phase = elapsed < 5000000LL ? -1 :
+                      elapsed < 20000000LL ? 0 :
+                      elapsed < 35000000LL ? 1 :
+                      elapsed < 50000000LL ? 2 : 3;
+    if (phase == g_gpio25_dac_selftest_phase) return;
+    g_gpio25_dac_selftest_phase = phase;
+    if (phase == 3) {
+        dac_ll_digi_enable_dma(true);
+        g_gpio25_dac_selftest_active = false;
+        ESP_LOGW(TAG, "GPIO25 DAC SELFTEST complete; continuous composite DAC output resumed");
+        return;
+    }
+    static const uint8_t levels[] = {0, 128, 255};
+    dac_ll_update_output_value(DAC_CHAN_0, levels[phase]);
+    ESP_LOGW(TAG, "GPIO25 DAC SELFTEST %d/3: hold value=%u (~%.2f V unloaded) for 15 seconds",
+             phase + 1, (unsigned)levels[phase], (double)levels[phase] * 3.3 / 255.0);
+}
 uint32_t video_dma_eof_count(void) { return g_video_dma_eof_count; }
 void video_dma_log_stall_state(void)
 {
@@ -419,25 +455,8 @@ static void setup_video_dac(void)
     dac_ll_power_on(DAC_CHAN_0);
     dac_ll_rtc_sync_by_adc(false);
 
-    /* DEBUG: direct DAC voltage test BEFORE connecting I2S0 to the DAC.
-     * With no TV load, expect approximately 0, 1.65 and 3.3 volts on
-     * GPIO25. A stuck ~3V reading during all three steps indicates
-     * GPIO mux/routing, wiring, probe grounding or an external driver,
-     * not composite PAL sync. Only performed on the first TF preview
-     * after boot, to avoid delaying every file. */
-    if (!g_gpio25_dac_selftest_done) {
-        static const uint8_t levels[] = {0, 128, 255};
-        g_gpio25_dac_selftest_done = true;
-        dac_ll_digi_enable_dma(false);
-        for (unsigned i=0; i<sizeof(levels)/sizeof(levels[0]); ++i) {
-            dac_ll_update_output_value(DAC_CHAN_0, levels[i]);
-            ESP_LOGW(TAG, "GPIO25 DAC SELFTEST %u/3: value=%u (expect ~%.2f V unloaded); measure NOW",
-                     i+1, (unsigned)levels[i], (double)levels[i]*3.3/255.0);
-            vTaskDelay(pdMS_TO_TICKS(1800));
-        }
-        ESP_LOGW(TAG, "GPIO25 DAC SELFTEST complete; switching DAC to continuous video I2S now");
-    }
-
+    /* Run the direct-voltage test nonblockingly once video is initialized.
+     * Do not delay here: the UI task must remain able to process BACK/STOP. */
     dac_ll_digi_enable_dma(true);
     ESP_LOGI(TAG, "DAC1 composite DMA on GPIO25; DAC2 GPIO26 reserved for audio");
 
@@ -450,6 +469,13 @@ static void setup_video_dac(void)
 
     ESP_ERROR_CHECK(esp_intr_enable(i2s_interrupt_handle));
     ESP_LOGD(TAG, "I²S interrupt enabled");
+    if (!g_gpio25_dac_selftest_done) {
+        g_gpio25_dac_selftest_done = true;
+        g_gpio25_dac_selftest_active = true;
+        g_gpio25_dac_selftest_phase = -2;
+    } else {
+        g_gpio25_dac_selftest_active = false;
+    }
 }
 
 /**
@@ -457,6 +483,7 @@ static void setup_video_dac(void)
 */ 
 void video_stop(void)
 {
+    g_gpio25_dac_selftest_active = false;
     ESP_LOGD(TAG, "Composite stop");
     if( !g_video_initialized )
     {
