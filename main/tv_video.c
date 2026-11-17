@@ -164,6 +164,7 @@ void tv_video_tick(int64_t now_us)
   uint32_t delta=irq_count-previous_video_irq_count;
   if(delta==0){
    ESP_LOGE(TV_TAG,"COMPOSITE DMA STALLED: 0 I2S0 EOF interrupts during last second; no video scanlines");
+   if(irq_count==0 || previous_video_irq_count!=irq_count)video_dma_log_stall_state();
   }else{
    ESP_LOGI(TV_TAG,"Composite DMA active: %lu scanlines/s (I2S EOF), total=%lu; TV sync/voltage still unverified",
             (unsigned long)delta,(unsigned long)irq_count);
