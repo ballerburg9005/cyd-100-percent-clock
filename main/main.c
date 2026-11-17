@@ -673,6 +673,15 @@ static void open_files(void)
     ui.file_index=0;
     ui.page=UI_FILES;
 }
+static void save_audio_selection(char *dst,size_t capacity,const char *key)
+{
+    /* Sound keys and TF filenames are byte strings; preserve complete UTF-8
+     * whenever it fits rather than use printf's unsafe implicit truncation. */
+    if(!capacity)return;
+    size_t n=strnlen(key,capacity-1);
+    memcpy(dst,key,n);
+    dst[n]=0;
+}
 static void touch(int x,int y)
 {
 #ifdef CONFIG_CLOCK_TOUCH_DEBUG
@@ -893,8 +902,8 @@ static void touch(int x,int y)
             if(id>=0 && id<AUDIO_BUILTIN_COUNT && (y-50)%38<34){
                 char key[20];audio_builtin_key(id,key,sizeof key);
                 if(ui.sound_target==2)
-                    snprintf(ui.timer_sound,sizeof ui.timer_sound,"%s",key);
-                else snprintf(ui.alarm_sound,sizeof ui.alarm_sound,"%s",key);
+                    save_audio_selection(ui.timer_sound,sizeof ui.timer_sound,key);
+                else save_audio_selection(ui.alarm_sound,sizeof ui.alarm_sound,key);
                 store();
                 audio_play_key(key,false); /* preview selected melody */
             }
@@ -914,11 +923,11 @@ static void touch(int x,int y)
                 else audio_play_key(key,false);
             }else if(x<212){
                 audio_stop();
-                snprintf(ui.alarm_sound,sizeof ui.alarm_sound,"%s",key);
+                save_audio_selection(ui.alarm_sound,sizeof ui.alarm_sound,key);
                 store();ui.sound_target=0;ui.page=UI_ALARM;
             }else{
                 audio_stop();
-                snprintf(ui.timer_sound,sizeof ui.timer_sound,"%s",key);
+                save_audio_selection(ui.timer_sound,sizeof ui.timer_sound,key);
                 store();ui.sound_target=0;ui.page=UI_TIMER;
             }
         }
