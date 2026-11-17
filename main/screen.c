@@ -367,17 +367,18 @@ static void edit_time(const ui_state_t *s)
         return;
     }
     static const char *labels[]={"YEAR","MONTH","DAY","HOUR","MIN","SEC"};
-    int vals[]={s->year,s->month,s->day,s->hour,s->minute,s->second};
-    char b[20];
+    int vals[]={s->year%100,s->month,s->day,s->hour,s->minute,s->second};
+    char b[8];
     for(int i=0;i<6;++i){
-        int row=i/3,col=i%3,x=12+col*102,y=87+row*61;
-        text(x+3,y,labels[i],1,muted);
-        snprintf(b,sizeof b,i==0?"%04d":"%02d",vals[i]);
-        text(x+5,y+12,b,2,ink);
-        button(x+54,y+12,21,20,"-",false);
-        button(x+77,y+12,21,20,"+",false);
+        int row=i/3,col=i%3,x=12+col*102,y=89+row*58;
+        /* Even 12px margins and identical spacing in both rows. */
+        text(x+5,y,labels[i],1,muted);
+        snprintf(b,sizeof b,"%02d",vals[i]);
+        text(x+5,y+17,b,2,ink);
+        button(x+49,y+17,24,28,"-",false);
+        button(x+76,y+17,24,28,"+",false);
     }
-    button(72,210,176,27,"SAVE LOCAL TIME",true);
+    button(12,201,194,36,"SAVE TIME",true);
 }
 static void wifi_page(const ui_state_t *s)
 {
