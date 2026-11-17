@@ -128,7 +128,7 @@ static volatile uint32_t g_video_dma_eof_count = 0;
 uint32_t video_dma_eof_count(void) { return g_video_dma_eof_count; }
 void video_dma_log_stall_state(void)
 {
-    ESP_LOGE(TAG, "I2S0 DMA status: raw=0x%08lx tx_start=%u out_link=0x%08lx dscr_en=%u auto_wrback=%u owner=[%u,%u]",
+    ESP_LOGE(TAG, "I2S0 DMA status: raw=0x%08lx tx_start=%u out_link=0x%08lx dscr_en=%u auto_wrback=%u first_owners=[%u,%u]",
              (unsigned long)I2S0.int_raw.val,
              (unsigned)I2S0.conf.tx_start,
              (unsigned long)I2S0.out_link.val,
