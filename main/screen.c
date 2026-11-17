@@ -423,9 +423,9 @@ static void contact_page(const ui_state_t *s)
 static void look_page(const ui_state_t *s)
 {
     header("LOOK");
-    center(59,"COLOR SCHEME",2,muted);
     const char *names[]={"ROSE","GLACIER","HONEY","DARK"};
-    button(18,89,138,45,names[s->theme%4],true);
+    center(59,names[s->theme%4],2,muted);
+    button(18,89,138,45,"NEXT COLOR",false);
     button(167,89,135,45,"DARK",s->theme==3);
     char label[36];snprintf(label,sizeof label,"BRIGHTNESS: %u%%",s->brightness);
     center(152,label,2,ink);
