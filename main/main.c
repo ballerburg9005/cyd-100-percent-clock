@@ -631,6 +631,12 @@ static void touch(int x,int y)
     last_touch_us=esp_timer_get_time();
     if(ui.alarm_ringing||ui.timer_ringing){silence();return;}
     if(ui.page==UI_HOME){ui.page=UI_MENU;return;}
+    /* SD media is removable: let the user re-mount without rebooting. */
+    if(ui.page==UI_FILES && y<44 && x>=139 && x<246){
+        media_refresh();
+        open_files();
+        return;
+    }
     if(y<44 && x>=247 && ui.page!=UI_KEYBOARD){
         if(ui.page==UI_MENU)ui.page=UI_HOME;
         else if(ui.page==UI_WIFI_SCAN){end_wifi_scan();ui.page=UI_WIFI;}
@@ -650,6 +656,12 @@ static void touch(int x,int y)
             else if(col==1){ui.page=UI_CONTACT;media_photo();}
             else ui.page=UI_LOOK;
         }else if(y>=188&&y<239)open_files();
+    }else if(ui.page==UI_CONTACT){
+        if(y>=199 && x>=203){
+            media_refresh();
+            ui.sd_ready=media_is_mounted();
+            media_photo();
+        }
     }else if(ui.page==UI_ALARM){
         if(y>=180&&y<207){
             int col=x<80?0:x<160?1:x<240?2:3;
@@ -801,7 +813,10 @@ static void touch(int x,int y)
                 media_open(ui.file_preview,sizeof ui.file_preview);
                 ui.page=UI_FILE_VIEW;
             }
-        }else if(!ui.sd_ready && y>=70)open_files();
+        }else if(!ui.sd_ready && y>=70){
+            media_refresh();
+            open_files();
+        }
     }
 }
 void app_main(void)
@@ -822,6 +837,7 @@ void app_main(void)
     int last_timer_sec=-1;
     int last_brightness=-1;
     int64_t touch_feedback_deadline=0;
+    int64_t next_photo_retry_us=0;
     bool last_connected=false,last_portal=false,last_ntp_synced=false;
     bool last_connecting=false,last_scanning=false;
     uint16_t last_wifi_error=0;
@@ -842,6 +858,15 @@ void app_main(void)
         }
         if(ui.touch_feedback && now_us>=touch_feedback_deadline){
             ui.touch_feedback=false;
+            draw=true;
+        }
+        /* The photo loader formerly ran only on entry to CONTACT. A card
+         * inserted afterward never appeared. Retry periodically while this
+         * page is visible; the mount itself has a 3s backoff. */
+        if(ui.page==UI_CONTACT && !media_has_bitmap() &&
+           now_us>=next_photo_retry_us){
+            media_photo();
+            next_photo_retry_us=now_us+3000000LL;
             draw=true;
         }
         if(alarm_adjust_dirty && now_us-last_alarm_adjust_us>=450000LL){
