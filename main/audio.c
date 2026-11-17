@@ -75,6 +75,7 @@ typedef struct {
  mp3dec_t decoder;
  mp3d_sample_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
  int pcm_len,pcm_pos;
+ uint32_t decoded_frames;
 } source_t;
 static source_t src;
 static SemaphoreHandle_t lock;
@@ -246,6 +247,12 @@ static bool get_mp3_sample(source_t *s,int16_t *out)
      info.hz>=8000&&info.hz<=48000){
    s->rate=info.hz;s->channels=info.channels;
    s->pcm_len=frames;s->pcm_pos=0;
+   /* First frame and every 1024 frames: observe actual stack margin.
+    * No full MP3 is ever copied into RAM; only a streaming window. */
+   if((s->decoded_frames++ & 1023u)==0u)
+    ESP_LOGI(TAG,"MP3 %dHz, %d channels; decoder stack available=%u bytes",
+             info.hz,info.channels,
+             (unsigned)uxTaskGetStackHighWaterMark(NULL));
   }
  }
  int ix=s->pcm_pos++*s->channels;
@@ -411,7 +418,15 @@ void audio_init(void)
  };
  e=esp_timer_create(&timer_cfg,&timer);
  if(e!=ESP_OK){ESP_LOGE(TAG,"Audio timer unavailable: %s",esp_err_to_name(e));return;}
- if(xTaskCreatePinnedToCore(audio_worker,"clock_audio",8192,NULL,4,NULL,1)!=pdPASS)
-  ESP_LOGE(TAG,"Cannot create audio worker");
+ /* minimp3 allocates mp3dec_scratch_t on the calling task's stack:
+ * the scratch structure is already >16 KiB! The former 8192-byte task
+ * overran its stack when decoding large MP3s, corrupting other tasks
+ * (panics appeared in GPTimer and esp_timer code). ESP-IDF uses BYTES
+ * for xTaskCreatePinnedToCore stack sizes, not FreeRTOS words. */
+ const uint32_t worker_stack=32768;
+ ESP_LOGI(TAG,"MP3 scratch=%u bytes; decoder task stack=%u bytes",
+          (unsigned)sizeof(mp3dec_scratch_t),(unsigned)worker_stack);
+ if(xTaskCreatePinnedToCore(audio_worker,"clock_audio",worker_stack,NULL,4,NULL,1)!=pdPASS)
+  ESP_LOGE(TAG,"Cannot start audio worker (heap too fragmented)");
  else ESP_LOGI(TAG,"GPIO26 DAC + 10kHz esp_timer TASK (no GPTimer ISR / LCD I2S0)");
 }
