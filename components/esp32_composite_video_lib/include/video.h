@@ -164,6 +164,9 @@ void video_graphics(GRAPHICS_MODE mode, FRAME_BUFFER_FORMAT fb_format);
 void video_wait_frame(void);
 void video_get_mode_description(char* buffer, size_t buffer_size);
 void video_stop(void);
+/* Monotonic I2S0 out_eof interrupts since the most recent video start.
+ * Helps distinguish a configured DAC from an actually running DMA engine. */
+uint32_t video_dma_eof_count(void);
 
 #if CONFIG_VIDEO_DIAG_ENABLE_INTERRUPT_STATS
 void video_show_stats(void);
