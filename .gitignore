@@ -11,3 +11,5 @@ managed_components/
 # Local-only real contact details; never push these to the public repository.
 # contact_details.txt is a tracked FAKE/placeholder file, not private.
 contact_details.private.txt
+# Backup of pre-audio sdkconfig (contains local hardware settings)
+sdkconfig.before-audio
