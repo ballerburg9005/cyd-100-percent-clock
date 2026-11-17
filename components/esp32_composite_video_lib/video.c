@@ -141,6 +141,9 @@ static void gpio25_selftest_digital_mode(void)
     dac_ll_power_down(DAC_CHAN_0);
     ESP_ERROR_CHECK(rtc_gpio_deinit(GPIO_NUM_25));
     ESP_ERROR_CHECK(gpio_reset_pin(GPIO_NUM_25));
+    /* Lowest output drive strength limits contention if external hardware
+     * is unexpectedly holding the LCD data line high. No TV attached. */
+    ESP_ERROR_CHECK(gpio_set_drive_capability(GPIO_NUM_25, GPIO_DRIVE_CAP_0));
     ESP_ERROR_CHECK(gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT));
 }
 static void gpio25_selftest_analog_mode(void)
