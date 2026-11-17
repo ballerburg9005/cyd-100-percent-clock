@@ -231,6 +231,7 @@ static void stop_wifi_radio(void)
     wifi_session_started_us=0;
     wifi_retry_after_us=0;
     ui.wifi_connecting=false;
+    ntp_updated=false;
     if(wifi_started){
         wifi_started=false;
         ESP_ERROR_CHECK(esp_wifi_stop());
@@ -303,6 +304,26 @@ static void start_wifi(void)
     }
     /* First boot: the phone setup AP is available for ten minutes. */
     if(!ui.ssid[0])enable_portal();
+}
+static void apply_wifi_credentials(void)
+{
+    /* No whole-device reboot for keyboard/scan edits: keep the Wi-Fi page
+     * visible so a bad SSID or password is distinguishable from booting. */
+    if(ui.portal_enabled)disable_portal();
+    stop_wifi_radio();
+    wifi_config_t sta={0};
+    strncpy((char *)sta.sta.ssid,ui.ssid,sizeof sta.sta.ssid-1);
+    size_t passlen=strlen(ui.password);
+    if(passlen>sizeof sta.sta.password)passlen=sizeof sta.sta.password;
+    memcpy(sta.sta.password,ui.password,passlen);
+    sta.sta.threshold.authmode=WIFI_AUTH_OPEN;
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA,&sta));
+    ui.wifi_disconnect_reason=0;
+    ui.ntp_synced=false;
+    ntp_updated=false;
+    next_ntp_sync_us=0;
+    if(ui.use_ntp && ui.ssid[0])start_ntp_radio();
 }
 static void reboot_task(void *arg)
 {
@@ -658,7 +679,7 @@ static void touch(int x,int y)
         if(y>=50&&y<83 && x<=220){
             ui.use_ntp=!ui.use_ntp;
             if(ui.use_ntp)next_ntp_sync_us=0;
-            else stop_wifi_radio();
+            else if(!ui.portal_enabled)stop_wifi_radio();
             store();
             return;
         }
@@ -687,9 +708,9 @@ static void touch(int x,int y)
                 /* The scan returns the EXACT case-sensitive router SSID. */
                 snprintf(ui.ssid,sizeof ui.ssid,"%s",ui.wifi_scan_ssids[index]);
                 store();
-                ui.page=UI_WIFI;
                 end_wifi_scan();
-                xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
+                ui.page=UI_WIFI;
+                apply_wifi_credentials();
             }
         }else if(y>=210){
             if(x<112)begin_wifi_scan();
@@ -733,7 +754,7 @@ static void touch(int x,int y)
                     snprintf(ui.ssid,sizeof ui.ssid,"%.32s",ui.keyboard_value);
                 store();
                 ui.page=UI_WIFI;
-                xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
+                apply_wifi_credentials();
             }
         }
     }else if(ui.page==UI_LOOK){
