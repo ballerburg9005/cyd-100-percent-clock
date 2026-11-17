@@ -269,7 +269,7 @@ static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data)
             ui.wifi_disconnect_reason=ev?ev->reason:0;
             ui.wifi_connecting=false;
             wifi_retry_after_us=esp_timer_get_time()+WIFI_RETRY_US;
-            ESP_LOGW(TAG,"Wi-Fi disconnected (reason=%u), retrying",ui.wifi_disconnect_reason);
+            ESP_LOGW(TAG,"Wi-Fi disconnected (reason=%u), retrying",(unsigned)ui.wifi_disconnect_reason);
         }
     }
     if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP && !wifi_scan_active){
