@@ -705,18 +705,18 @@ static void touch(int x,int y)
         }
         if(ui.use_ntp)return;
         /* Match the rendered bottom-left save and precisely spaced +/- keys. */
-        if(y>=201&&y<238 && x>=12&&x<206){
+        if(y>=201&&y<238 && x>=20&&x<208){
             set_manual_time();
             return;
         }
         int row=-1;
         if(y>=106&&y<134)row=0;
         if(y>=164&&y<192)row=1;
-        if(row>=0 && x>=12 && x<318){
-            int col=(x-12)/102,localx=(x-12)%102;
+        if(row>=0 && x>=20 && x<302){
+            int col=(x-20)/94,localx=(x-20)%94;
             if(col>=0&&col<3){
-                if(localx>=49&&localx<73)adjust_time_field(col,row,-1);
-                else if(localx>=76&&localx<100)adjust_time_field(col,row,1);
+                if(localx>=41&&localx<63)adjust_time_field(col,row,-1);
+                else if(localx>=67&&localx<89)adjust_time_field(col,row,1);
             }
         }
     }else if(ui.page==UI_WIFI){
