@@ -130,6 +130,10 @@ void video_dma_log_stall_state(void)
              (unsigned)I2S0.lc_conf.out_auto_wrback,
              (unsigned)dma_buffers[0].owner,
              (unsigned)dma_buffers[1].owner);
+    ESP_LOGE(TAG, "I2S0 descriptor error=%u, dma out eof=%u, current EOF descriptor=%p",
+             (unsigned)I2S0.int_raw.out_dscr_err,
+             (unsigned)I2S0.int_raw.out_eof,
+             (void *)I2S0.out_eof_des_addr);
 }
 EventGroupHandle_t g_video_event_group=NULL;
 
@@ -358,6 +362,7 @@ static void setup_video_dac(void)
     I2S0.fifo_conf.dscr_en = 1;
     I2S0.lc_conf.out_auto_wrback = 1;
     I2S0.lc_conf.out_eof_mode = 1;
+    I2S0.lc_conf.check_owner = 1; /* Detect accidental reuse of CPU-owned descriptors. */
 
 	const size_t DMA_BUFFER_COUNT = sizeof(dma_buffers)/sizeof(lldesc_t);
     for (size_t n=0; n<DMA_BUFFER_COUNT; n++)
@@ -1017,6 +1022,13 @@ static void IRAM_ATTR i2s_interrupt(void *dma_buffer_size_bytes)
             pal_render_scan_line();
 
         INTERRUPT_STOPWATCH_STOP();
+        /* The ESP32 DMA engine returns each finished descriptor to CPU
+         * ownership (owner=0). Refill its scanline first, then hand the
+         * descriptor back to DMA. Without this step a two-descriptor ring
+         * stops after precisely two EOF interrupts, with out_dscr_err set. */
+        lldesc_t *completed = (lldesc_t *)I2S0.out_eof_des_addr;
+        __asm__ __volatile__ ("" ::: "memory");
+        completed->owner = 1;
 #if CONFIG_VIDEO_TRIGGER_MODE_ISR
         DIAG_PIN_LO();
 #endif
