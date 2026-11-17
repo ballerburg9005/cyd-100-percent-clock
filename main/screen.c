@@ -380,7 +380,10 @@ static void wifi_page(const ui_state_t *s)
         center(197,s->portal_ssid,1,accent);
         snprintf(text_buf,sizeof text_buf,"PASSWORD: %s",s->portal_password);
         center(209,text_buf,1,ink);
-        center(224,"OPEN 192.168.4.1",1,ink);
+        snprintf(text_buf,sizeof text_buf,"192.168.4.1   %u:%02u LEFT",
+                 (unsigned)(s->portal_seconds_left/60),
+                 (unsigned)(s->portal_seconds_left%60));
+        center(224,text_buf,1,ink);
     }
 }
 static void keyboard_page(const ui_state_t *s)
