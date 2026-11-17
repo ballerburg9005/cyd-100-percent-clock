@@ -16,6 +16,7 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -199,7 +200,7 @@ static void header(const char *label)
 }
 /* Tall typographic digits; dot and percent need optical alignment, so they
    are rendered separately rather than using the existing raster glyphs. */
-#define LARGE_H 101
+#define LARGE_H 114
 /* Visible column bounds measured from the glyph data itself; stripping
    blank side bearings gives genuinely close-set digits instead of just
    reducing the space after an already-padded bitmap. */
@@ -207,22 +208,22 @@ static const uint8_t digit_min_x[10]={5,8,5,6,4,6,5,6,5,5};
 static const uint8_t digit_max_x[10]={42,40,40,41,43,41,42,41,42,42};
 static int large_width(char c)
 {
-    if(c=='.')return 9;
-    if(c=='%')return 17;
+    if(c=='.')return 15;
+    if(c=='%')return 26;
     int index=big_index(c);
-    return index>=0?52:8;
+    return index>=0?65:8;
 }
 static void huge(int x,int y,const char *value,uint16_t color)
 {
     int cursor=x;
     for(const char *p=value;*p;p++){
         if(*p=='.'){
-            rounded(cursor+1,y+LARGE_H-13,7,7,3,color);
+            rounded(cursor+4,y+LARGE_H-14,7,7,3,color);
             cursor+=large_width(*p);
             continue;
         }
         if(*p=='%'){
-            text(cursor+1,y+LARGE_H-31,"%",3,color);
+            text(cursor+4,y+LARGE_H-31,"%",3,color);
             cursor+=large_width(*p);
             continue;
         }
@@ -270,20 +271,16 @@ static void fmt_duration(char *out,size_t n,int bp)
 }
 static void home(const ui_state_t *s)
 {
-    text(12,14,s->wifi_connected?(s->use_ntp?"NTP / ONLINE":"WIFI / ONLINE"):
+    text(12,14,s->wifi_connected?"NTP / SYNCING":
+                    s->ntp_synced?"NTP / SYNCED":
                     s->rtc_present?"RTC / OFFLINE":"LOCAL / OFFLINE",1,muted);
     button(255,5,60,34,"MENU",false);
     char label[48];
     if(s->time_valid){
         fmt_day(label,sizeof label,day_bp(&s->local));
-        huge_center(45,label,accent);
-        snprintf(label,sizeof label,"%02d:%02d",s->local.tm_hour,s->local.tm_min);
-        center(153,label,2,ink);
-        strftime(label,sizeof label,"%A",&s->local);
-        center(185,label,2,muted);
-        snprintf(label,sizeof label,"%04d-%02d-%02d",s->local.tm_year+1900,
-                 s->local.tm_mon+1,s->local.tm_mday);
-        center(207,label,2,muted);
+        huge_center(40,label,accent);
+        strftime(label,sizeof label,"%Y-%m-%d %H:%M %A",&s->local);
+        center(188,label,2,ink);
         rounded(10,225,300,11,4,card);
         int filled=day_bp(&s->local)*300/10000;
         if(filled>0)rounded(10,225,filled,11,4,accent);
@@ -313,7 +310,7 @@ static void alarm_page(const ui_state_t *s)
     text(11,52,"DAILY ALARM IN DECIMAL TIME",1,muted);
     char value[20],note[40];
     fmt_day(value,sizeof value,s->alarm_bp);
-    huge_center(61,value,accent);
+    huge_center(59,value,accent);
     int sec=(s->alarm_bp*86400+5000)/10000;
     snprintf(note,sizeof note,"%02d:%02d LOCAL",sec/3600%24,sec/60%60);
     center(164,note,2,muted);
@@ -326,16 +323,13 @@ static void alarm_page(const ui_state_t *s)
 static void timer_page(const ui_state_t *s)
 {
     header("TIMER");
-    text(11,52,"PERCENT OF DAY",1,muted);
     int sec=s->timer_running?s->timer_seconds_left:
             (int)((s->timer_duration_ms+500u)/1000u);
     if(sec<0)sec=0;
     int bp=s->timer_running?(int)(((int64_t)sec*10000+43200)/86400):s->timer_bp;
-    char value[20],note[40];
+    char value[20];
     fmt_duration(value,sizeof value,bp);
-    huge_center(61,value,accent);
-    snprintf(note,sizeof note,"%02d:%02d REMAINING",sec/60,sec%60);
-    center(164,note,2,muted);
+    huge_center(58,value,accent);
     button(5,181,73,24,"-0.10",false);
     button(84,181,73,24,"-0.01",false);
     button(163,181,73,24,"+0.01",false);
@@ -349,7 +343,9 @@ static void edit_time(const ui_state_t *s)
     button(16,50,185,30,s->use_ntp?"[X] USE NTP":"[ ] USE NTP",s->use_ntp);
     if(s->use_ntp){
         center(110,"TIME FROM INTERNET",2,accent);
-        center(149,s->wifi_connected?"CONNECTED / SYNC ON":"CONNECT WIFI FOR NTP",1,muted);
+        center(149,s->wifi_connected?"SYNCING FROM INTERNET":
+                   s->ntp_synced?"TIME SYNCED / RADIO OFF":
+                   "WIFI SYNC PENDING",1,muted);
         center(184,"TAP CHECKBOX FOR MANUAL",1,muted);
         return;
     }
@@ -369,14 +365,24 @@ static void edit_time(const ui_state_t *s)
 static void wifi_page(const ui_state_t *s)
 {
     header("WIFI");
-    center(51,s->portal_enabled?"SETUP AP ACTIVE":
-           (s->wifi_connected?"ONLINE":"NOT CONNECTED"),2,
-           (s->portal_enabled||s->wifi_connected)?accent:muted);
+    const char *status=s->portal_enabled?"SETUP AP ACTIVE":
+                       s->wifi_connected?"CONNECTED":
+                       s->wifi_scanning?"SCANNING":
+                       s->wifi_disconnect_reason==WIFI_REASON_NO_AP_FOUND?
+                         "SSID NOT FOUND - SCAN":
+                       s->wifi_disconnect_reason==WIFI_REASON_AUTH_FAIL ||
+                       s->wifi_disconnect_reason==WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT?
+                         "CHECK WIFI PASSWORD":
+                       s->wifi_connecting?"CONNECTING":
+                       s->ntp_synced?"TIME SYNCED / WIFI OFF":"WIFI OFF";
+    center(51,status,2,(s->wifi_connected||s->ntp_synced||s->portal_enabled)?
+           accent:muted);
     char text_buf[55];
     snprintf(text_buf,sizeof text_buf,"SSID: %.32s",s->ssid[0]?s->ssid:"(NOT SET)");
     center(78,text_buf,1,ink);
-    button(18,106,133,38,"EDIT SSID",false);
-    button(168,106,133,38,"EDIT PASSWORD",false);
+    button(18,106,84,38,"SCAN",false);
+    button(110,106,94,38,"EDIT SSID",false);
+    button(212,106,90,38,"EDIT PASS",false);
     button(49,156,222,37,s->portal_enabled?"RESTART WIFI PORTAL":"START WIFI PORTAL",s->portal_enabled);
     if(s->portal_enabled){
         center(197,s->portal_ssid,1,accent);
@@ -387,6 +393,26 @@ static void wifi_page(const ui_state_t *s)
                  (unsigned)(s->portal_seconds_left%60));
         center(224,text_buf,1,ink);
     }
+}
+static void wifi_scan_page(const ui_state_t *s)
+{
+    header("SCAN WIFI");
+    if(s->wifi_scanning){
+        center(99,"SCANNING 2.4 GHZ...",2,accent);
+        center(142,"PLEASE WAIT",2,muted);
+    }else if(!s->wifi_scan_count){
+        center(99,"NO NETWORK FOUND",2,muted);
+    }else{
+        for(int i=0;i<4;++i){
+            int index=s->wifi_scan_page*4+i;
+            if(index>=s->wifi_scan_count)break;
+            /* Exact SSID casing matters. */
+            button(18,51+i*39,284,35,s->wifi_scan_ssids[index],false);
+        }
+    }
+    button(17,210,92,27,"RESCAN",false);
+    button(115,210,89,27,"PREV",false);
+    button(211,210,91,27,"NEXT",false);
 }
 static void keyboard_page(const ui_state_t *s)
 {
@@ -493,6 +519,7 @@ void screen_draw(const ui_state_t *s)
           case UI_TIMER:timer_page(s);break;
           case UI_SET_TIME:edit_time(s);break;
           case UI_WIFI:wifi_page(s);break;
+          case UI_WIFI_SCAN:wifi_scan_page(s);break;
           case UI_CONTACT:contact_page(s);break;
           case UI_LOOK:look_page(s);break;
           case UI_KEYBOARD:keyboard_page(s);break;

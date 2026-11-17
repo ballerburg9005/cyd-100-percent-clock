@@ -29,6 +29,9 @@
 
 #define RTC_ADDR 0x68
 #define PORTAL_SECONDS 600
+#define NTP_INTERVAL_US (300LL*1000000LL)
+#define NTP_WINDOW_US (35000000LL)
+#define WIFI_RETRY_US (5000000LL)
 static const char *TAG = "one_hundred";
 static ui_state_t ui;
 static char tz[85]="CET-1CEST,M3.5.0,M10.5.0/3";
@@ -37,12 +40,19 @@ static bool sntp_running;
 static bool wifi_started;
 static httpd_handle_t web_server;
 static int64_t portal_deadline;
+static int64_t next_ntp_sync_us;
+static int64_t wifi_session_started_us;
+static volatile int64_t wifi_retry_after_us;
+static volatile bool ntp_updated;
+static volatile bool wifi_scan_done;
+static bool wifi_scan_active;
 static int64_t timer_deadline;
 static int64_t ring_deadline;
 static int last_alarm_date=-1;
 static int64_t last_touch_us;
 static int sound_hz;
 static void enable_portal(void);
+static void disable_portal(void);
 
 static uint8_t bcd(uint8_t x) { return (x>>4)*10+(x&15); }
 static uint8_t binbcd(int x) { return (uint8_t)(((x/10)<<4)|(x%10)); }
@@ -191,27 +201,82 @@ static void i2c_init(void)
     ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0,&conf));
     ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0,I2C_MODE_MASTER,0,0,0));
 }
+static void ntp_time_updated(struct timeval *tv)
+{
+    (void)tv;
+    /* lwIP task callback: let the main loop stop the radio and update RTC. */
+    ntp_updated=true;
+}
+static void stop_sntp(void)
+{
+    if(sntp_running){
+        esp_sntp_stop();
+        sntp_running=false;
+    }
+}
 static void snpt_start_once(void)
 {
     if(sntp_running || !ui.use_ntp)return;
-    sntp_running=true;
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    esp_sntp_set_time_sync_notification_cb(ntp_time_updated);
     esp_sntp_setservername(0,"pool.ntp.org");
     esp_sntp_init();
-    ESP_LOGI(TAG,"SNTP enabled");
+    sntp_running=true;
+    ESP_LOGI(TAG,"NTP started (short Wi-Fi sync window)");
+}
+static void stop_wifi_radio(void)
+{
+    stop_sntp();
+    /* Mark inactive before esp_wifi_stop emits disconnect events. */
+    wifi_session_started_us=0;
+    wifi_retry_after_us=0;
+    ui.wifi_connecting=false;
+    ntp_updated=false;
+    if(wifi_started){
+        wifi_started=false;
+        ESP_ERROR_CHECK(esp_wifi_stop());
+    }
+    wifi_connected=false;
+}
+static void start_ntp_radio(void)
+{
+    if(!ui.use_ntp || !ui.ssid[0] || ui.portal_enabled || wifi_scan_active ||
+       wifi_started)return;
+    ui.wifi_disconnect_reason=0;
+    ui.wifi_connecting=true;
+    wifi_retry_after_us=0;
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    wifi_started=true;
+    wifi_session_started_us=esp_timer_get_time();
 }
 static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data)
 {
-    (void)arg;(void)data;
-    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_START && ui.ssid[0] && !ui.portal_enabled)
+    (void)arg;
+    if(base==WIFI_EVENT && id==WIFI_EVENT_SCAN_DONE){
+        if(wifi_scan_active)wifi_scan_done=true;
+        return;
+    }
+    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_START && ui.ssid[0] &&
+       ui.use_ntp && !ui.portal_enabled && !wifi_scan_active){
         esp_wifi_connect();
+    }
     if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) {
         wifi_connected=false;
-        /* The setup portal is AP-only; do not reconnect the station here. */
-        if(ui.ssid[0] && !ui.portal_enabled)esp_wifi_connect();
+        if(wifi_started && ui.use_ntp && !ui.portal_enabled && !wifi_scan_active){
+            const wifi_event_sta_disconnected_t *ev=data;
+            ui.wifi_disconnect_reason=ev?ev->reason:0;
+            ui.wifi_connecting=false;
+            wifi_retry_after_us=esp_timer_get_time()+WIFI_RETRY_US;
+            ESP_LOGW(TAG,"Wi-Fi disconnected (reason=%u), retrying",(unsigned)ui.wifi_disconnect_reason);
+        }
     }
-    if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP) {
+    if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP && !wifi_scan_active){
         wifi_connected=true;
+        ui.wifi_connecting=false;
+        ui.wifi_disconnect_reason=0;
+        wifi_retry_after_us=0;
         snpt_start_once();
     }
 }
@@ -229,20 +294,37 @@ static void start_wifi(void)
     if(ui.ssid[0]){
         wifi_config_t sta={0};
         strncpy((char *)sta.sta.ssid,ui.ssid,sizeof sta.sta.ssid-1);
-        /* A 64-character WPA2 key is a raw hexadecimal PSK and fills the
-           entire ESP-IDF password array without a NUL terminator. */
+        /* A 64-character WPA2 key may fill the entire buffer (raw PSK). */
         size_t passlen=strlen(ui.password);
         if(passlen>sizeof sta.sta.password)passlen=sizeof sta.sta.password;
         memcpy(sta.sta.password,ui.password,passlen);
         sta.sta.threshold.authmode=WIFI_AUTH_OPEN;
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA,&sta));
-        ESP_ERROR_CHECK(esp_wifi_start());wifi_started=true;
-        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+        if(ui.use_ntp)start_ntp_radio();
     }
-    /* First boot: allow phone provisioning for 10 minutes automatically,
-       then shut the AP off to conserve battery. */
+    /* First boot: the phone setup AP is available for ten minutes. */
     if(!ui.ssid[0])enable_portal();
+}
+static void apply_wifi_credentials(void)
+{
+    /* No whole-device reboot for keyboard/scan edits: keep the Wi-Fi page
+     * visible so a bad SSID or password is distinguishable from booting. */
+    if(ui.portal_enabled)disable_portal();
+    stop_wifi_radio();
+    wifi_config_t sta={0};
+    strncpy((char *)sta.sta.ssid,ui.ssid,sizeof sta.sta.ssid-1);
+    size_t passlen=strlen(ui.password);
+    if(passlen>sizeof sta.sta.password)passlen=sizeof sta.sta.password;
+    memcpy(sta.sta.password,ui.password,passlen);
+    sta.sta.threshold.authmode=WIFI_AUTH_OPEN;
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA,&sta));
+    ui.wifi_disconnect_reason=0;
+    ui.ntp_synced=false;
+    ntp_updated=false;
+    next_ntp_sync_us=0;
+    if(ui.use_ntp && ui.ssid[0])start_ntp_radio();
 }
 static void reboot_task(void *arg)
 {
@@ -376,12 +458,9 @@ static void enable_portal(void)
     /* APSTA inherits the home router's channel and can become hard to find.
      * Setup needs no internet, so use AP-only on channel 6 until it closes. */
     ui.portal_enabled=true;
-    wifi_connected=false;
+    ntp_updated=false;
+    stop_wifi_radio();
     if(web_server){httpd_stop(web_server);web_server=NULL;}
-    if(wifi_started){
-        ESP_ERROR_CHECK(esp_wifi_stop());
-        wifi_started=false;
-    }
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP,&ap));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -405,18 +484,11 @@ static void disable_portal(void)
 {
     if(!ui.portal_enabled)return;
     if(web_server){httpd_stop(web_server);web_server=NULL;}
-    if(wifi_started){
-        ESP_ERROR_CHECK(esp_wifi_stop());
-        wifi_started=false;
-    }
+    stop_wifi_radio();
     ui.portal_enabled=false;
     ui.portal_seconds_left=0;
-    if(ui.ssid[0]){
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-        ESP_ERROR_CHECK(esp_wifi_start());
-        wifi_started=true;
-        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-    } else ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
+    if(ui.ssid[0] && ui.use_ntp)start_ntp_radio();
+    else ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
     /* Password is retained in NVS for the next setup session. */
     ui.portal_ssid[0]=0;
 }
@@ -472,6 +544,65 @@ static void start_keyboard(bool password)
     snprintf(ui.keyboard_value,sizeof ui.keyboard_value,"%s",password?ui.password:ui.ssid);
     ui.page=UI_KEYBOARD;
 }
+static void end_wifi_scan(void)
+{
+    if(wifi_scan_active && wifi_started){
+        esp_wifi_scan_stop(); /* harmless if scan already completed */
+        esp_wifi_clear_ap_list();
+    }
+    wifi_scan_active=false;
+    wifi_scan_done=false;
+    ui.wifi_scanning=false;
+    stop_wifi_radio();
+    next_ntp_sync_us=esp_timer_get_time()+NTP_INTERVAL_US;
+}
+static void begin_wifi_scan(void)
+{
+    /* Scan is opt-in; routine NTP sync does not continuously scan networks. */
+    if(ui.portal_enabled)disable_portal();
+    if(wifi_scan_active)end_wifi_scan();
+    stop_wifi_radio();
+    ui.page=UI_WIFI_SCAN;
+    ui.wifi_scan_page=0;
+    ui.wifi_scan_count=0;
+    ui.wifi_scanning=true;
+    wifi_scan_done=false;
+    wifi_scan_active=true;
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    wifi_started=true;
+    esp_err_t err=esp_wifi_scan_start(NULL,false);
+    if(err!=ESP_OK){
+        ESP_LOGW(TAG,"Wi-Fi scan start failed: %s",esp_err_to_name(err));
+        end_wifi_scan();
+    }
+}
+static void receive_wifi_scan(void)
+{
+    wifi_scan_done=false;
+    uint16_t total=0;
+    if(esp_wifi_scan_get_ap_num(&total)==ESP_OK && total){
+        uint16_t take=total>32?32:total;
+        wifi_ap_record_t *records=calloc(take,sizeof(*records));
+        if(records){
+            if(esp_wifi_scan_get_ap_records(&take,records)==ESP_OK){
+                for(uint16_t i=0;i<take && ui.wifi_scan_count<16;++i){
+                    char ssid[33]={0};
+                    memcpy(ssid,records[i].ssid,32);
+                    if(!ssid[0])continue;
+                    bool duplicate=false;
+                    for(int j=0;j<ui.wifi_scan_count;++j)
+                        if(strcmp(ssid,ui.wifi_scan_ssids[j])==0){duplicate=true;break;}
+                    if(!duplicate)
+                        snprintf(ui.wifi_scan_ssids[ui.wifi_scan_count++],33,"%s",ssid);
+                }
+            }else esp_wifi_clear_ap_list();
+            free(records);
+        }else esp_wifi_clear_ap_list();
+    }else esp_wifi_clear_ap_list();
+    /* Preserve displayed scan results while powering the radio back down. */
+    end_wifi_scan();
+}
 static void open_files(void)
 {
     ui.sd_ready=media_select(0,ui.file_name,sizeof ui.file_name);
@@ -488,6 +619,7 @@ static void touch(int x,int y)
     if(ui.page==UI_HOME){ui.page=UI_MENU;return;}
     if(y<44 && x>=247 && ui.page!=UI_KEYBOARD){
         if(ui.page==UI_MENU)ui.page=UI_HOME;
+        else if(ui.page==UI_WIFI_SCAN){end_wifi_scan();ui.page=UI_WIFI;}
         else if(ui.page==UI_KEYBOARD)ui.page=UI_WIFI;
         else if(ui.page==UI_FILE_VIEW)ui.page=UI_FILES;
         else ui.page=UI_MENU;
@@ -547,11 +679,8 @@ static void touch(int x,int y)
     }else if(ui.page==UI_SET_TIME){
         if(y>=50&&y<83 && x<=220){
             ui.use_ntp=!ui.use_ntp;
-            if(ui.use_ntp){
-                if(wifi_connected)snpt_start_once();
-            }else if(sntp_running){
-                esp_sntp_stop();sntp_running=false;
-            }
+            if(ui.use_ntp)next_ntp_sync_us=0;
+            else if(!ui.portal_enabled)stop_wifi_radio();
             store();
             return;
         }
@@ -568,8 +697,29 @@ static void touch(int x,int y)
             }
         }
     }else if(ui.page==UI_WIFI){
-        if(y>=106&&y<146)start_keyboard(x>=160);
-        else if(y>=156&&y<195)enable_portal();
+        if(y>=106&&y<146){
+            if(x<107)begin_wifi_scan();
+            else start_keyboard(x>=208);
+        }else if(y>=156&&y<195)enable_portal();
+    }else if(ui.page==UI_WIFI_SCAN){
+        if(y>=51&&y<204 && !ui.wifi_scanning){
+            int row=(y-51)/39;
+            int index=ui.wifi_scan_page*4+row;
+            if(row>=0&&row<4 && index<ui.wifi_scan_count){
+                /* The scan returns the EXACT case-sensitive router SSID. */
+                snprintf(ui.ssid,sizeof ui.ssid,"%s",ui.wifi_scan_ssids[index]);
+                store();
+                end_wifi_scan();
+                ui.page=UI_WIFI;
+                apply_wifi_credentials();
+            }
+        }else if(y>=210){
+            if(x<112)begin_wifi_scan();
+            else if(x<208){
+                if(ui.wifi_scan_page>0)--ui.wifi_scan_page;
+            }else if((ui.wifi_scan_page+1)*4<ui.wifi_scan_count)
+                ++ui.wifi_scan_page;
+        }
     }else if(ui.page==UI_KEYBOARD){
         if(y>=51 && y<213){
             int row=(y-51)/27;
@@ -605,7 +755,7 @@ static void touch(int x,int y)
                     snprintf(ui.ssid,sizeof ui.ssid,"%.32s",ui.keyboard_value);
                 store();
                 ui.page=UI_WIFI;
-                xTaskCreate(reboot_task,"reboot",2048,NULL,2,NULL);
+                apply_wifi_credentials();
             }
         }
     }else if(ui.page==UI_LOOK){
@@ -647,10 +797,12 @@ void app_main(void)
     last_touch_us=esp_timer_get_time();
     int last_day_bp=-1,previous_bp=-1,previous_day=-1;
     int last_timer_sec=-1;
-    int64_t last_rtc_poll=0;
     int last_brightness=-1;
     int64_t touch_feedback_deadline=0;
-    bool last_connected=false,last_portal=false;
+    bool last_connected=false,last_portal=false,last_ntp_synced=false;
+    bool last_connecting=false,last_scanning=false;
+    uint16_t last_wifi_error=0;
+    ESP_LOGI(TAG,"Boot reset reason=%d",(int)esp_reset_reason());
     /* First boot should immediately show the AP credentials. */
     ui.page=ui.portal_enabled?UI_WIFI:UI_HOME;
     screen_draw(&ui);
@@ -676,6 +828,40 @@ void app_main(void)
             if(left!=ui.portal_seconds_left){
                 ui.portal_seconds_left=left;
                 if(ui.page==UI_WIFI)draw=true;
+            }
+        }
+        if(wifi_scan_active && wifi_scan_done){
+            receive_wifi_scan();
+            draw=true;
+        }
+        /* Keep Wi-Fi fully stopped between NTP polls, not just in modem sleep.
+         * The running ESP32 clock continues to tick with no network. */
+        if(!ui.portal_enabled && !wifi_scan_active){
+            if(!ui.use_ntp || !ui.ssid[0]){
+                if(wifi_started)stop_wifi_radio();
+            }else if(ntp_updated){
+                ntp_updated=false;
+                ui.ntp_synced=true;
+                time_t synced_epoch=time(NULL);
+                rtc_save(synced_epoch);
+                stop_wifi_radio();
+                next_ntp_sync_us=now_us+NTP_INTERVAL_US;
+                draw=true;
+            }else if(wifi_session_started_us &&
+                     now_us-wifi_session_started_us>=NTP_WINDOW_US){
+                ESP_LOGW(TAG,"NTP Wi-Fi window timed out after 35s");
+                stop_wifi_radio();
+                next_ntp_sync_us=now_us+NTP_INTERVAL_US;
+                draw=true;
+            }else if(!wifi_started && now_us>=next_ntp_sync_us){
+                start_ntp_radio();
+                draw=true;
+            }else if(wifi_started && !wifi_connected && wifi_retry_after_us &&
+                     now_us>=wifi_retry_after_us){
+                wifi_retry_after_us=0;
+                esp_err_t e=esp_wifi_connect();
+                if(e!=ESP_OK)wifi_retry_after_us=now_us+WIFI_RETRY_US;
+                draw=true;
             }
         }
         time_t epoch=time(NULL);
@@ -722,13 +908,18 @@ void app_main(void)
             else if(note==2||note==3)hz=784;
         }
         sound(hz);
-        if(wifi_connected && ui.use_ntp && ui.time_valid && ui.rtc_present &&
-           now_us-last_rtc_poll>3600LL*1000000){
-            rtc_save(epoch);
-            last_rtc_poll=now_us;
-        }
-        if(last_connected!=wifi_connected||last_portal!=ui.portal_enabled){
-            last_connected=wifi_connected;last_portal=ui.portal_enabled;draw=true;
+        if(last_connected!=wifi_connected || last_portal!=ui.portal_enabled ||
+           last_ntp_synced!=ui.ntp_synced ||
+           last_connecting!=ui.wifi_connecting ||
+           last_scanning!=ui.wifi_scanning ||
+           last_wifi_error!=ui.wifi_disconnect_reason){
+            last_connected=wifi_connected;
+            last_portal=ui.portal_enabled;
+            last_ntp_synced=ui.ntp_synced;
+            last_connecting=ui.wifi_connecting;
+            last_scanning=ui.wifi_scanning;
+            last_wifi_error=ui.wifi_disconnect_reason;
+            draw=true;
         }
         ui.wifi_connected=wifi_connected;
         int target_brightness=ui.brightness;
