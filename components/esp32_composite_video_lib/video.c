@@ -234,54 +234,61 @@ static void setup_video_signal(VIDEO_MODE mode, DAC_FREQUENCY dac_frequency, uin
     {
         g_video_signal.frame_buffer_size_bytes = width_pixels*height_pixels*g_video_signal.bits_per_pixel/BITS_IN_BYTE;
     }
-    ESP_LOGD(TAG, "Bits per pixel: %u, %ux%u. FB size %u bytes ", g_video_signal.bits_per_pixel, g_video_signal.width_pixels, g_video_signal.height_pixels, g_video_signal.frame_buffer_size_bytes);
+    ESP_LOGD(TAG, "Bits per pixel: %u, %ux%u. FB size %u bytes ", g_video_signal.bits_per_pixel, g_video_signal.width_pixels, g_video_signal.height_pixels, (unsigned)g_video_signal.frame_buffer_size_bytes);
 
     assert(g_video_signal.frame_buffer_size_bytes%4==0); //for 32 bit access (read/write 4 bytes at once)
 
     const uint32_t caps = MALLOC_CAP_32BIT; //must be 8bit to allow LVGL direct framebuffer access (otherwise it can be 32bit)
-    ESP_LOGD(TAG, "Memory: total free: %u, largest block %u", heap_caps_get_free_size(caps), heap_caps_get_largest_free_block(caps));
+    ESP_LOGD(TAG, "Memory: total free: %u, largest block %u", (unsigned)heap_caps_get_free_size(caps), (unsigned)heap_caps_get_largest_free_block(caps));
     g_video_signal.frame_buffer = (uint8_t*)heap_caps_calloc(g_video_signal.frame_buffer_size_bytes, sizeof(uint8_t), caps);
     if(NULL == g_video_signal.frame_buffer)
     {
-        ESP_LOGE(TAG, "Failed to allocate %u bytes for frame buffer", g_video_signal.frame_buffer_size_bytes);
+        ESP_LOGE(TAG, "Failed to allocate %u bytes for frame buffer", (unsigned)g_video_signal.frame_buffer_size_bytes);
         heap_caps_print_heap_info(caps);
         assert(false);
     }
-    ESP_LOGI(TAG, "Allocated %u bytes for frame buffer", g_video_signal.frame_buffer_size_bytes);
+    ESP_LOGI(TAG, "Allocated %u bytes for frame buffer", (unsigned)g_video_signal.frame_buffer_size_bytes);
 }
 
+/* ESP-IDF 5.x split the old five-argument rtc_clk_apll_enable()
+ * into the power control call plus a separate coefficient setter. */
+static void video_apll_enable(uint32_t sdm0,uint32_t sdm1,uint32_t sdm2,uint32_t odiv)
+{
+    rtc_clk_apll_enable(true);
+    rtc_clk_apll_coeff_set(odiv,sdm0,sdm1,sdm2);
+}
 static void set_dac_frequency(void)
 {
     switch(g_video_signal.dac_frequency)
     {
         case DAC_FREQ_PAL_14_75MHz:
-            rtc_clk_apll_enable(1, 0xCD, 0xCC, 0x07, 2); //= 14.750004 MHz
+            video_apll_enable( 0xCD, 0xCC, 0x07, 2); //= 14.750004 MHz
             ESP_LOGI(TAG, "DAC clock configured to 14.75 MHz. PAL 640 pixels.");
             break;
 
         case DAC_FREQ_PAL_7_357MHz:
-            rtc_clk_apll_enable(1, 0xCD, 0xCC, 0x07, 6); //= 7.375002 MHz
+            video_apll_enable( 0xCD, 0xCC, 0x07, 6); //= 7.375002 MHz
             ESP_LOGI(TAG, "DAC clock configured to 7.35 MHz. PAL 320 pixels.");
             break;
 
         case DAC_FREQ_NTSC_12_273MHz: //=12272720
-            rtc_clk_apll_enable(1, 209, 69, 8, 3);
+            video_apll_enable( 209, 69, 8, 3);
             ESP_LOGI(TAG, "DAC clock configured to 12.273 MHz. NTSC 640 pixels.");
             break;
 
         case DAC_FREQ_NTSC_6_136MHz: //=6.136360
             ESP_LOGI(TAG, "DAC clock configured to 6.136 MHz. NTSC 320 pixels.");
-            rtc_clk_apll_enable(1, 209, 69, 8, 8);
+            video_apll_enable( 209, 69, 8, 8);
             break;
 
         case DAC_FREQ_PAL_NTSC_13_5MHz: //=13500001
             ESP_LOGI(TAG, "DAC clock configured to 13.5 MHz. BT.601 PAL/NTSC 640 pixels.");
-            rtc_clk_apll_enable(1, 205, 76, 20, 7);
+            video_apll_enable( 205, 76, 20, 7);
             break;
 
         case DAC_FREQ_PAL_NTSC_6_75MHz: // =6.750000
             ESP_LOGI(TAG, "DAC clock configured to 6.75 MHz. BT.601 PAL/NTSC 320 pixels.");
-            rtc_clk_apll_enable(1, 205, 76, 20, 16);
+            video_apll_enable( 205, 76, 20, 16);
             break;
 
         default:
@@ -296,7 +303,7 @@ static void setup_video_dac(void)
 	ESP_LOGD(TAG, "DAC setup");
 
     const size_t dma_buffer_size_bytes = g_video_signal.samples_per_line*sizeof(uint16_t);
-    ESP_LOGD(TAG, "Computed DMA buffer size: %u", dma_buffer_size_bytes);
+    ESP_LOGD(TAG, "Computed DMA buffer size: %u", (unsigned)dma_buffer_size_bytes);
 
     periph_module_enable(PERIPH_I2S0_MODULE);
     ESP_ERROR_CHECK(esp_intr_alloc(ETS_I2S0_INTR_SOURCE, ESP_INTR_FLAG_LEVEL1 | ESP_INTR_FLAG_IRAM, i2s_interrupt, (void*)dma_buffer_size_bytes, &i2s_interrupt_handle));
@@ -323,7 +330,7 @@ static void setup_video_dac(void)
 	const size_t DMA_BUFFER_COUNT = sizeof(dma_buffers)/sizeof(lldesc_t);
     for (size_t n=0; n<DMA_BUFFER_COUNT; n++)
 	{
-        ESP_LOGD(TAG, "Allocating DMA buffer: %u bytes", dma_buffer_size_bytes);
+        ESP_LOGD(TAG, "Allocating DMA buffer: %u bytes", (unsigned)dma_buffer_size_bytes);
         dma_buffers[n].buf = (uint8_t*)heap_caps_calloc(dma_buffer_size_bytes, sizeof(uint8_t), MALLOC_CAP_DMA);
 		assert(dma_buffers[n].buf != NULL);
         dma_buffers[n].owner = 1;
@@ -333,7 +340,7 @@ static void setup_video_dac(void)
         dma_buffers[n].empty = (uint32_t)(n==DMA_BUFFER_COUNT-1? &dma_buffers[0] : &dma_buffers[n+1]);
     }
     I2S0.out_link.addr = (uint32_t)&dma_buffers[0];
-    ESP_LOGI(TAG, "DMA buffers configured. Buffers: %u, Size: %u bytes each", DMA_BUFFER_COUNT, dma_buffer_size_bytes);
+    ESP_LOGI(TAG, "DMA buffers configured. Buffers: %u, Size: %u bytes each", (unsigned)DMA_BUFFER_COUNT, (unsigned)dma_buffer_size_bytes);
 
     set_dac_frequency();
 
@@ -393,6 +400,7 @@ void video_stop(void)
     // disable I2S
     ESP_LOGD(TAG, "Disable I²S module");
     periph_module_disable(PERIPH_I2S0_MODULE);
+    rtc_clk_apll_enable(false);
 
     // free frame buffer
     if( g_video_signal.frame_buffer )
@@ -488,7 +496,7 @@ void video_init(uint16_t width, uint16_t height, FRAME_BUFFER_FORMAT fb_format, 
 	setup_video_dac();
 
     ESP_LOGD(TAG,"rtc_clk_xtal_freq_get() = %d", (int)rtc_clk_xtal_freq_get());
-    ESP_LOGI(TAG,"DAC frequency: %u Hz", (uint32_t)g_video_signal.dac_frequency);
+    ESP_LOGI(TAG,"DAC frequency: %u Hz", (unsigned)g_video_signal.dac_frequency);
     ESP_LOGD(TAG,"DAC SYNC  level: %u", DAC_LEVEL_SYNC);
     ESP_LOGD(TAG,"DAC BLACK level: %u", DAC_LEVEL_BLACK);
     ESP_LOGD(TAG,"DAC WHITE level: %u", DAC_LEVEL_WHITE);
@@ -975,7 +983,7 @@ void video_show_stats(void)
 {
     uint32_t pixel_avg_us = g_pixel_total_us/g_pixel_calls_count;
 
-    ESP_LOGI(TAG, "Interrupt MAX: %u µs, MIN: %u µs. Pixel AVG: %u µs", g_interrupt_max, g_interrupt_min, pixel_avg_us );
+    ESP_LOGI(TAG, "Interrupt MAX: %u µs, MIN: %u µs. Pixel AVG: %u µs", (unsigned)g_interrupt_max, (unsigned)g_interrupt_min, (unsigned)pixel_avg_us );
 
     g_pixel_total_us = g_pixel_calls_count = 0;
     g_interrupt_min = UINT32_MAX;
