@@ -199,7 +199,7 @@ static void header(const char *label)
 }
 /* Tall typographic digits; dot and percent need optical alignment, so they
    are rendered separately rather than using the existing raster glyphs. */
-#define LARGE_H 106
+#define LARGE_H 101
 /* Visible column bounds measured from the glyph data itself; stripping
    blank side bearings gives genuinely close-set digits instead of just
    reducing the space after an already-padded bitmap. */
@@ -276,7 +276,7 @@ static void home(const ui_state_t *s)
     char label[48];
     if(s->time_valid){
         fmt_day(label,sizeof label,day_bp(&s->local));
-        huge_center(43,label,accent);
+        huge_center(45,label,accent);
         snprintf(label,sizeof label,"%02d:%02d",s->local.tm_hour,s->local.tm_min);
         center(153,label,2,ink);
         strftime(label,sizeof label,"%A",&s->local);
@@ -313,14 +313,14 @@ static void alarm_page(const ui_state_t *s)
     text(11,52,"DAILY ALARM IN DECIMAL TIME",1,muted);
     char value[20],note[40];
     fmt_day(value,sizeof value,s->alarm_bp);
-    huge_center(51,value,accent);
+    huge_center(61,value,accent);
     int sec=(s->alarm_bp*86400+5000)/10000;
     snprintf(note,sizeof note,"%02d:%02d LOCAL",sec/3600%24,sec/60%60);
-    center(144,note,2,muted);
-    button(5,167,73,35,"-1.00",false);
-    button(84,167,73,35,"-0.01",false);
-    button(163,167,73,35,"+0.01",false);
-    button(242,167,73,35,"+1.00",false);
+    center(164,note,2,muted);
+    button(5,181,73,24,"-1.00",false);
+    button(84,181,73,24,"-0.01",false);
+    button(163,181,73,24,"+0.01",false);
+    button(242,181,73,24,"+1.00",false);
     button(18,208,284,29,s->alarm_enabled?"ALARM ON":"ALARM OFF",s->alarm_enabled);
 }
 static void timer_page(const ui_state_t *s)
@@ -333,13 +333,13 @@ static void timer_page(const ui_state_t *s)
     int bp=s->timer_running?(int)(((int64_t)sec*10000+43200)/86400):s->timer_bp;
     char value[20],note[40];
     fmt_duration(value,sizeof value,bp);
-    huge_center(51,value,accent);
+    huge_center(61,value,accent);
     snprintf(note,sizeof note,"%02d:%02d REMAINING",sec/60,sec%60);
-    center(144,note,2,muted);
-    button(5,167,73,35,"-0.10",false);
-    button(84,167,73,35,"-0.01",false);
-    button(163,167,73,35,"+0.01",false);
-    button(242,167,73,35,"+0.10",false);
+    center(164,note,2,muted);
+    button(5,181,73,24,"-0.10",false);
+    button(84,181,73,24,"-0.01",false);
+    button(163,181,73,24,"+0.01",false);
+    button(242,181,73,24,"+0.10",false);
     button(17,208,93,29,"RESET",false);
     button(119,208,184,29,s->timer_running?"STOP TIMER":"START TIMER",s->timer_running);
 }
