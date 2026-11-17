@@ -2,7 +2,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#define MEDIA_BMP_SIZE 128
+#define MEDIA_BMP_WIDTH 128
+#define MEDIA_BMP_HEIGHT 160
 bool media_mount(void);
 void media_refresh(void);  /* force a new mount and root-directory scan */
 bool media_is_mounted(void);
