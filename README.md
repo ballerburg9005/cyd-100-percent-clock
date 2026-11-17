@@ -108,10 +108,11 @@ change. The display never prematurely rolls over to 100.00%.
 - **Contact:** XMPP JID and email configured through the Wi-Fi portal.
   Place `face.bmp` (uncompressed Windows 24-bit RGB or common 32-bit BGRA BMP)
   in the microSD root. The photo is center-cropped without stretching
-  to a 128×169 portrait thumbnail and displayed at **140×185** (44% of the
-  320px screen width, just 5px above the bottom edge), without a gray border.
-  An approximately 140:185 portrait source avoids cropping; the earlier
-  140×178 source also works and does not need to be resized. Image red/blue
+  to a 128×174 portrait thumbnail and displayed at **140×190** (44% of the
+  320px screen width), filling the region from y=50 to the last display row
+  y=239 with no bottom margin or gray border. The height is exactly
+  240 - 50 = 190 px; a 140×190 source avoids cropping, and existing
+  140×178 or 140×185 BMPs also work without re-exporting. Image red/blue
   channels are corrected for the board's BGR display order.
   When a card is inserted while CONTACT is open, the firmware retries loading
   automatically every ~3 seconds; use **RELOAD** at bottom right if replacing
