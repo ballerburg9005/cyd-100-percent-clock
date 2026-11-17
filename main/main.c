@@ -203,7 +203,7 @@ static void snpt_start_once(void)
 static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data)
 {
     (void)arg;(void)data;
-    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_START && ui.ssid[0])
+    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_START && ui.ssid[0] && !ui.portal_enabled)
         esp_wifi_connect();
     if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) {
         wifi_connected=false;
